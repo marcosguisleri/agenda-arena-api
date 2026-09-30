@@ -1,4 +1,4 @@
-package br.dev.guisleri.agenda_arena_api;
+package br.dev.guisleri.agendaarena;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

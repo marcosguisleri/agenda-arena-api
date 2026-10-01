@@ -29,10 +29,10 @@ public class EstablishmentService {
         return establishmentRepository.findAll();
     }
 
-    public Establishment findEstablishmentById(Long id) {
-        return establishmentRepository.findById(id)
+    public Establishment findEstablishmentById(Long establishmentId) {
+        return establishmentRepository.findById(establishmentId)
                 .orElseThrow(() -> new EstablishmentNotFoundException(
-                                "Establishment with id " + id + " not found"
+                                "Establishment with id " + establishmentId + " not found"
                         )
                 );
     }

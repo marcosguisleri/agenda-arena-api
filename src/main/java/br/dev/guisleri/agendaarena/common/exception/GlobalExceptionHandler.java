@@ -1,9 +1,12 @@
 package br.dev.guisleri.agendaarena.common.exception;
 
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
+import br.dev.guisleri.agendaarena.sportfield.exception.SportFieldAlreadyExistsException;
+import br.dev.guisleri.agendaarena.sportfield.exception.SportFieldNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -21,6 +24,28 @@ public class GlobalExceptionHandler {
     ) {
         return createErrorResponse(
                 HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(SportFieldNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleSportFieldNotFoundException(
+            SportFieldNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(SportFieldAlreadyExistsException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleSportFieldAlreadyExistsException(
+            SportFieldAlreadyExistsException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
                 exception.getMessage(),
                 Map.of()
         );
@@ -44,6 +69,17 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 "Validation failed",
                 errors
+        );
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleHttpMessageNotReadableException(
+            HttpMessageNotReadableException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                "Invalid request body",
+                Map.of()
         );
     }
 

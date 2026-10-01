@@ -46,18 +46,21 @@ public class EstablishmentController {
     }
 
     @GetMapping
-    public List<EstablishmentResponseDTO> findAllEstablishments() {
-        return establishmentService.findAllEstablishments()
-                .stream()
-                .map(EstablishmentResponseDTO::fromEntity)
-                .toList();
+    public ResponseEntity<List<EstablishmentResponseDTO>> findAllEstablishments() {
+        List<Establishment> establishments = establishmentService.findAllEstablishments();
+
+        return ResponseEntity.ok(
+                establishments.stream()
+                        .map(EstablishmentResponseDTO::fromEntity)
+                        .toList()
+        );
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{establishmentId}")
     public ResponseEntity<EstablishmentResponseDTO> findEstablishmentById(
-            @PathVariable Long id
+            @PathVariable Long establishmentId
     ) {
-        Establishment establishment = establishmentService.findEstablishmentById(id);
+        Establishment establishment = establishmentService.findEstablishmentById(establishmentId);
         return ResponseEntity.ok(EstablishmentResponseDTO.fromEntity(establishment));
     }
 }

@@ -33,6 +33,9 @@ public class SportField {
     @Column(name = "sport_type", nullable = false, length = 50)
     private SportType sportType;
 
+    @Column(name = "slot_duration_minutes", nullable = false)
+    private int slotDurationMinutes;
+
     @Column(nullable = false)
     private boolean active;
 
@@ -47,6 +50,7 @@ public class SportField {
         this.establishment = establishment;
         this.name = name;
         this.sportType = sportType;
+        this.slotDurationMinutes = 60;
         this.active = true;
     }
 
@@ -64,6 +68,10 @@ public class SportField {
 
     public SportType getSportType() {
         return sportType;
+    }
+
+    public int getSlotDurationMinutes() {
+        return slotDurationMinutes;
     }
 
     public boolean isActive() {

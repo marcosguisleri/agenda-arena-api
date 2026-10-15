@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.schedule.dto;
 
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 
@@ -17,6 +18,7 @@ public record CreateScheduleSlotRequestDTO (
 
         @NotNull
         @PositiveOrZero
+        @Digits(integer = 8, fraction = 2)
         BigDecimal price
 
 ) {

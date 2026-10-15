@@ -22,4 +22,9 @@ public interface ScheduleSlotRepository extends JpaRepository<ScheduleSlot, Long
             Long sportFieldId
     );
 
+    List<ScheduleSlot> findAllBySportFieldIdAndDayOfWeek(
+            Long sportFieldId,
+            DayOfWeek dayOfWeek
+    );
+
 }

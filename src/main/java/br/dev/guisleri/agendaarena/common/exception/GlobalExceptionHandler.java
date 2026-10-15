@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.common.exception;
 
+import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationAlreadyExistsException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotAllowedException;
@@ -151,6 +152,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ReservationNotAllowedException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleReservationNotAllowedException(
             ReservationNotAllowedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(AvailabilityNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleAvailabilityNotAllowedException(
+            AvailabilityNotAllowedException exception
     ) {
         return createErrorResponse(
                 HttpStatus.BAD_REQUEST,

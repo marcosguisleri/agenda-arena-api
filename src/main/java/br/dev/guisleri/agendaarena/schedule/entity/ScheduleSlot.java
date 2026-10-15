@@ -74,7 +74,7 @@ public class ScheduleSlot {
         return price;
     }
 
-    public Boolean isActive() {
+    public boolean isActive() {
         return active;
     }
 }

@@ -5,6 +5,8 @@ import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentReposit
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -23,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -117,6 +120,100 @@ class EstablishmentIntegrationTests {
                         "Establishment with id " + unknownId + " not found"
                 )))
                 .andExpect(jsonPath("$.errors").isMap());
+    }
+
+    @Test
+    void shouldDeactivateActiveEstablishment() throws Exception {
+        Establishment establishment = establishmentRepository.save(new Establishment("Arena Oeste"));
+
+        mockMvc.perform(patch("/establishments/{id}/status", establishment.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"active":false}
+                                """))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        Establishment updatedEstablishment = establishmentRepository.findById(establishment.getId()).orElseThrow();
+        assertThat(updatedEstablishment.isActive()).isFalse();
+    }
+
+    @Test
+    void shouldActivateInactiveEstablishment() throws Exception {
+        Establishment establishment = new Establishment("Arena Sudeste");
+        establishment.deactivate();
+        establishment = establishmentRepository.save(establishment);
+
+        mockMvc.perform(patch("/establishments/{id}/status", establishment.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"active":true}
+                                """))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        Establishment updatedEstablishment = establishmentRepository.findById(establishment.getId()).orElseThrow();
+        assertThat(updatedEstablishment.isActive()).isTrue();
+    }
+
+    @Test
+    void shouldAcceptRequestingTheSameStatusAgain() throws Exception {
+        Establishment establishment = establishmentRepository.save(new Establishment("Arena Noroeste"));
+
+        for (int request = 0; request < 2; request++) {
+            mockMvc.perform(patch("/establishments/{id}/status", establishment.getId())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"active":true}
+                                    """))
+                    .andExpect(status().isNoContent())
+                    .andExpect(content().string(""));
+        }
+
+        Establishment updatedEstablishment = establishmentRepository.findById(establishment.getId()).orElseThrow();
+        assertThat(updatedEstablishment.isActive()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{}",
+            "{\"active\":null}"
+    })
+    void shouldReturnBadRequestWhenActiveIsMissingOrNull(String requestBody) throws Exception {
+        Establishment establishment = establishmentRepository.save(new Establishment("Arena Centro-Oeste"));
+
+        mockMvc.perform(patch("/establishments/{id}/status", establishment.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").isString())
+                .andExpect(jsonPath("$.errors").isMap())
+                .andExpect(jsonPath("$.errors.active").isNotEmpty());
+
+        Establishment unchangedEstablishment = establishmentRepository.findById(establishment.getId()).orElseThrow();
+        assertThat(unchangedEstablishment.isActive()).isTrue();
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenUpdatingStatusOfUnknownEstablishment() throws Exception {
+        long unknownId = Long.MAX_VALUE;
+
+        mockMvc.perform(patch("/establishments/{id}/status", unknownId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"active":false}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value(containsString(
+                        "Establishment with id " + unknownId + " not found"
+                )))
+                .andExpect(jsonPath("$.errors").isMap());
+
+        assertThat(establishmentRepository.count()).isZero();
     }
 
     @Test

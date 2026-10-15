@@ -36,4 +36,19 @@ public class EstablishmentService {
                         )
                 );
     }
+
+    public void updateEstablishmentStatus(
+            Long establishmentId,
+            boolean active
+    ) {
+        Establishment establishment = findEstablishmentById(establishmentId);
+
+        if (active) {
+            establishment.activate();
+        } else {
+            establishment.deactivate();
+        }
+
+        establishmentRepository.save(establishment);
+    }
 }

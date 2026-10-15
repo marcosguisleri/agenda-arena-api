@@ -2,17 +2,13 @@ package br.dev.guisleri.agendaarena.establishment.controller;
 
 import br.dev.guisleri.agendaarena.establishment.dto.CreateEstablishmentRequestDTO;
 import br.dev.guisleri.agendaarena.establishment.dto.EstablishmentResponseDTO;
+import br.dev.guisleri.agendaarena.establishment.dto.UpdateEstablishmentStatusRequestDTO;
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.service.EstablishmentService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -43,6 +39,16 @@ public class EstablishmentController {
                 .body(
                         EstablishmentResponseDTO.fromEntity(establishment)
                 );
+    }
+
+    @PatchMapping("/{establishmentId}/status")
+    public ResponseEntity<Void> updateEstablishmentStatus(
+            @PathVariable Long establishmentId,
+            @Valid @RequestBody UpdateEstablishmentStatusRequestDTO requestDTO
+    ) {
+        establishmentService.updateEstablishmentStatus(establishmentId, requestDTO.active());
+
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping

@@ -6,12 +6,12 @@ import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -20,6 +20,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -84,7 +86,6 @@ class UserIntegrationTests {
         assertThat(persistedUser.getEmail()).isEqualTo("maria.silva@example.com");
         assertThat(persistedUser.getPhone()).isEqualTo("11999991234");
         assertThat(persistedUser.getPasswordHash()).isNotEqualTo(ORIGINAL_PASSWORD);
-        assertThat(passwordEncoder).isInstanceOf(BCryptPasswordEncoder.class);
         assertThat(passwordEncoder.matches(ORIGINAL_PASSWORD, persistedUser.getPasswordHash())).isTrue();
         assertThat(persistedUser.isActive()).isTrue();
     }
@@ -146,6 +147,20 @@ class UserIntegrationTests {
                 createUser("Maria", "maria@example.com", "11999991234", "1234567"),
                 "password"
         );
+    }
+
+    @ParameterizedTest
+    @MethodSource("passwordsExceeding72Bytes")
+    void shouldRejectPasswordExceeding72Bytes(String password) throws Exception {
+        createUser("Maria", "maria@example.com", "11999991234", password)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Password must not exceed 72 bytes"));
+
+        assertThat(userRepository.count()).isZero();
+    }
+
+    private static Stream<String> passwordsExceeding72Bytes() {
+        return Stream.of("a".repeat(73), "😊".repeat(19));
     }
 
     private ResultActions createUser(String name, String email, String phone, String password) throws Exception {

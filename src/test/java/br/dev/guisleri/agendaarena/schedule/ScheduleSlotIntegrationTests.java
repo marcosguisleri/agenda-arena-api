@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -160,6 +161,63 @@ class ScheduleSlotIntegrationTests {
                 .andExpect(jsonPath("$.message").value(containsString("already exists")));
 
         assertThat(scheduleSlotRepository.count()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"23:00", "23:30"})
+    void shouldRejectScheduleSlotCrossingMidnight(String startTime) throws Exception {
+        Establishment establishment = createEstablishment("Arena Central");
+        SportField sportField = createSportField(establishment, "Campo 1");
+
+        assertError(createScheduleSlot(
+                establishment.getId(), sportField.getId(), "MONDAY", startTime, "100.00"
+        ), 400, "Bad Request")
+                .andExpect(jsonPath("$.message").value(containsString("cannot cross midnight")));
+
+        assertThat(scheduleSlotRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldRejectOverlappingScheduleSlot() throws Exception {
+        Establishment establishment = createEstablishment("Arena Central");
+        SportField sportField = createSportField(establishment, "Campo 1");
+
+        createScheduleSlot(establishment.getId(), sportField.getId(), "MONDAY", "19:00", "100.00")
+                .andExpect(status().isCreated());
+
+        assertError(createScheduleSlot(
+                establishment.getId(), sportField.getId(), "MONDAY", "19:30", "100.00"
+        ), 400, "Bad Request");
+
+        assertThat(scheduleSlotRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRejectScheduleSlotOverlappingFromBefore() throws Exception {
+        Establishment establishment = createEstablishment("Arena Central");
+        SportField sportField = createSportField(establishment, "Campo 1");
+
+        createScheduleSlot(establishment.getId(), sportField.getId(), "MONDAY", "19:00", "100.00")
+                .andExpect(status().isCreated());
+
+        assertError(createScheduleSlot(
+                establishment.getId(), sportField.getId(), "MONDAY", "18:30", "100.00"
+        ), 400, "Bad Request");
+
+        assertThat(scheduleSlotRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldAllowConsecutiveScheduleSlots() throws Exception {
+        Establishment establishment = createEstablishment("Arena Central");
+        SportField sportField = createSportField(establishment, "Campo 1");
+
+        createScheduleSlot(establishment.getId(), sportField.getId(), "MONDAY", "19:00", "100.00")
+                .andExpect(status().isCreated());
+        createScheduleSlot(establishment.getId(), sportField.getId(), "MONDAY", "20:00", "100.00")
+                .andExpect(status().isCreated());
+
+        assertThat(scheduleSlotRepository.count()).isEqualTo(2);
     }
 
     @Test

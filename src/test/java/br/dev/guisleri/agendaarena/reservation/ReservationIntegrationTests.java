@@ -289,12 +289,12 @@ class ReservationIntegrationTests {
     @Test
     void shouldEnforcePartialUniqueIndexForConfirmedReservations() {
         reservationRepository.saveAndFlush(
-                new Reservation(organizer, scheduleSlot, NEXT_MONDAY)
+                Reservation.online(organizer, scheduleSlot, NEXT_MONDAY)
         );
 
         try {
             reservationRepository.saveAndFlush(
-                    new Reservation(organizer, scheduleSlot, NEXT_MONDAY)
+                    Reservation.online(organizer, scheduleSlot, NEXT_MONDAY)
             );
         } catch (DataIntegrityViolationException exception) {
             exception.printStackTrace();
@@ -403,8 +403,9 @@ class ReservationIntegrationTests {
                             start_time,
                             end_time,
                             price,
+                            origin,
                             status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'ONLINE', ?)
                         """,
                 reservationOrganizer.getId(),
                 slot.getId(),

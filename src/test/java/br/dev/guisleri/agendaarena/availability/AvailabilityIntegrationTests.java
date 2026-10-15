@@ -369,7 +369,7 @@ class AvailabilityIntegrationTests {
                 "11999991234",
                 "password-hash"
         ));
-        return reservationRepository.save(new Reservation(organizer, slot, date));
+        return reservationRepository.save(Reservation.online(organizer, slot, date));
     }
 
     private ResultActions availabilityFor(LocalDate date) throws Exception {

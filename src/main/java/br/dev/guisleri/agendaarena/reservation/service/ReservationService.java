@@ -85,7 +85,7 @@ public class ReservationService {
 
         try {
             return reservationRepository.saveAndFlush(
-                    new Reservation(organizer, scheduleSlot, reservationDate)
+                    Reservation.online(organizer, scheduleSlot, reservationDate)
             );
         } catch (DataIntegrityViolationException exception) {
             if (exception.getMessage() != null

@@ -5,6 +5,7 @@ import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotAlreadyExistsE
 import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotNotFoundException;
 import br.dev.guisleri.agendaarena.sportfield.exception.SportFieldAlreadyExistsException;
 import br.dev.guisleri.agendaarena.sportfield.exception.SportFieldNotFoundException;
+import br.dev.guisleri.agendaarena.user.exception.UserAlreadyExistsException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -70,6 +71,17 @@ public class GlobalExceptionHandler {
     ) {
         return createErrorResponse(
                 HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(UserAlreadyExistsException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleUserAlreadyExistsException(
+            UserAlreadyExistsException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
                 exception.getMessage(),
                 Map.of()
         );

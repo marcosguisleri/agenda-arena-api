@@ -3,6 +3,7 @@ package br.dev.guisleri.agendaarena.reservation;
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentRepository;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
+import br.dev.guisleri.agendaarena.reservation.model.ReservationOrigin;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
@@ -50,6 +51,8 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -63,6 +66,8 @@ class ReservationIntegrationTests {
     private static final String BASE_PATH =
             "/establishments/{establishmentId}/sports-fields/{sportFieldId}"
                     + "/schedule-slots/{scheduleSlotId}/reservations";
+    private static final String AVAILABILITY_PATH =
+            "/establishments/{establishmentId}/sports-fields/{sportFieldId}/availability";
     private static final ZoneId SAO_PAULO = ZoneId.of("America/Sao_Paulo");
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 19);
     private static final LocalDate NEXT_MONDAY = LocalDate.of(2026, 10, 26);
@@ -146,6 +151,9 @@ class ReservationIntegrationTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNumber())
                 .andExpect(jsonPath("$.organizerId").value(organizer.getId()))
+                .andExpect(jsonPath("$.origin").value("ONLINE"))
+                .andExpect(jsonPath("$.customerName").value(nullValue()))
+                .andExpect(jsonPath("$.customerPhone").value(nullValue()))
                 .andExpect(jsonPath("$.scheduleSlotId").value(scheduleSlot.getId()))
                 .andExpect(jsonPath("$.reservationDate").value("2026-10-26"))
                 .andExpect(jsonPath("$.startTime").value("19:00:00"))
@@ -161,12 +169,133 @@ class ReservationIntegrationTests {
 
         assertThat(reservationRepository.count()).isEqualTo(1);
         assertThat(persisted.getOrganizer().getId()).isEqualTo(organizer.getId());
+        assertThat(persisted.getOrigin()).isEqualTo(ReservationOrigin.ONLINE);
+        assertThat(persisted.getCustomerName()).isNull();
+        assertThat(persisted.getCustomerPhone()).isNull();
         assertThat(persisted.getScheduleSlot().getId()).isEqualTo(scheduleSlot.getId());
         assertThat(persisted.getReservationDate()).isEqualTo(NEXT_MONDAY);
         assertThat(persisted.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
         assertThat(persisted.getStartTime()).isEqualTo(scheduleSlot.getStartTime());
         assertThat(persisted.getEndTime()).isEqualTo(scheduleSlot.getEndTime());
         assertThat(persisted.getPrice()).isEqualByComparingTo(scheduleSlot.getPrice());
+    }
+
+    @Test
+    void shouldCreateConfirmedManualReservationWithScheduleSlotSnapshot() throws Exception {
+        String response = createManualReservation(
+                NEXT_MONDAY,
+                "Joao da Silva",
+                "11999991234"
+        )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.organizerId").value(nullValue()))
+                .andExpect(jsonPath("$.origin").value("MANUAL"))
+                .andExpect(jsonPath("$.customerName").value("Joao da Silva"))
+                .andExpect(jsonPath("$.customerPhone").value("11999991234"))
+                .andExpect(jsonPath("$.scheduleSlotId").value(scheduleSlot.getId()))
+                .andExpect(jsonPath("$.reservationDate").value("2026-10-26"))
+                .andExpect(jsonPath("$.startTime").value("19:00:00"))
+                .andExpect(jsonPath("$.endTime").value("20:00:00"))
+                .andExpect(jsonPath("$.price").value(150.50))
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        Number returnedId = JsonPath.read(response, "$.id");
+        Reservation persisted = reservationRepository.findById(returnedId.longValue()).orElseThrow();
+
+        assertThat(reservationRepository.count()).isEqualTo(1);
+        assertThat(persisted.getOrganizer()).isNull();
+        assertThat(persisted.getOrigin()).isEqualTo(ReservationOrigin.MANUAL);
+        assertThat(persisted.getCustomerName()).isEqualTo("Joao da Silva");
+        assertThat(persisted.getCustomerPhone()).isEqualTo("11999991234");
+        assertThat(persisted.getScheduleSlot().getId()).isEqualTo(scheduleSlot.getId());
+        assertThat(persisted.getReservationDate()).isEqualTo(NEXT_MONDAY);
+        assertThat(persisted.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+        assertThat(persisted.getStartTime()).isEqualTo(scheduleSlot.getStartTime());
+        assertThat(persisted.getEndTime()).isEqualTo(scheduleSlot.getEndTime());
+        assertThat(persisted.getPrice()).isEqualByComparingTo(scheduleSlot.getPrice());
+    }
+
+    @Test
+    void shouldNormalizeManualReservationCustomerNameAndPhone() throws Exception {
+        createManualReservation(
+                NEXT_MONDAY,
+                "  Joao da Silva  ",
+                "(11) 99999-1234"
+        )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerName").value("Joao da Silva"))
+                .andExpect(jsonPath("$.customerPhone").value("11999991234"));
+
+        Reservation persisted = reservationRepository.findAll().getFirst();
+        assertThat(persisted.getCustomerName()).isEqualTo("Joao da Silva");
+        assertThat(persisted.getCustomerPhone()).isEqualTo("11999991234");
+    }
+
+    @Test
+    void shouldCreateManualReservationWithoutCustomerPhone() throws Exception {
+        createManualReservation(NEXT_MONDAY, "Joao da Silva", null)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerPhone").value(nullValue()));
+
+        Reservation persisted = reservationRepository.findAll().getFirst();
+        assertThat(persisted.getCustomerPhone()).isNull();
+    }
+
+    @Test
+    void shouldTreatEmptyManualReservationPhoneAsNull() throws Exception {
+        createManualReservation(NEXT_MONDAY, "Joao da Silva", "")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerPhone").value(nullValue()));
+
+        Reservation persisted = reservationRepository.findAll().getFirst();
+        assertThat(persisted.getCustomerPhone()).isNull();
+    }
+
+    @Test
+    void shouldMarkScheduleSlotAsUnavailableAfterManualReservation() throws Exception {
+        createManualReservation(NEXT_MONDAY, "Joao da Silva", null)
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get(
+                        AVAILABILITY_PATH,
+                        establishment.getId(),
+                        sportField.getId()
+                )
+                        .param("date", NEXT_MONDAY.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].scheduleSlotId").value(scheduleSlot.getId()))
+                .andExpect(jsonPath("$[0].available").value(false));
+    }
+
+    @Test
+    void shouldRejectManualReservationWhenConfirmedReservationExists() throws Exception {
+        createReservation(scheduleSlot, organizer.getId(), NEXT_MONDAY)
+                .andExpect(status().isCreated());
+
+        createManualReservation(NEXT_MONDAY, "Joao da Silva", null)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"));
+
+        assertThat(countReservations(scheduleSlot, NEXT_MONDAY, "CONFIRMED")).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRejectDuplicateManualReservation() throws Exception {
+        createManualReservation(NEXT_MONDAY, "Joao da Silva", null)
+                .andExpect(status().isCreated());
+
+        createManualReservation(NEXT_MONDAY, "Maria Souza", "11988887777")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"));
+
+        assertThat(countReservations(scheduleSlot, NEXT_MONDAY, "CONFIRMED")).isEqualTo(1);
     }
 
     @Test
@@ -355,6 +484,29 @@ class ReservationIntegrationTests {
         assertThat(reservationRepository.count()).isZero();
     }
 
+    @ParameterizedTest(name = "should reject invalid manual request: {0}")
+    @MethodSource("invalidManualRequests")
+    void shouldRejectInvalidManualRequest(
+            String scenario,
+            String expectedField,
+            String requestBody
+    ) throws Exception {
+        mockMvc.perform(post(
+                        BASE_PATH + "/manual",
+                        establishment.getId(),
+                        sportField.getId(),
+                        scheduleSlot.getId()
+                )
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.errors." + expectedField).isNotEmpty());
+
+        assertThat(reservationRepository.count()).isZero();
+    }
+
     private ResultActions createReservation(
             ScheduleSlot slot,
             Long organizerId,
@@ -381,6 +533,35 @@ class ReservationIntegrationTests {
                           "reservationDate": "%s"
                         }
                         """.formatted(organizerId, reservationDate)));
+    }
+
+    private ResultActions createManualReservation(
+            LocalDate reservationDate,
+            String customerName,
+            String customerPhone
+    ) throws Exception {
+        String serializedPhone = customerPhone == null
+                ? "null"
+                : "\"" + customerPhone + "\"";
+
+        return mockMvc.perform(post(
+                        BASE_PATH + "/manual",
+                        establishment.getId(),
+                        sportField.getId(),
+                        scheduleSlot.getId()
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "reservationDate": "%s",
+                          "customerName": "%s",
+                          "customerPhone": %s
+                        }
+                        """.formatted(
+                        reservationDate,
+                        customerName,
+                        serializedPhone
+                )));
     }
 
     private void assertBadRequest(ResultActions result) throws Exception {
@@ -466,6 +647,67 @@ class ReservationIntegrationTests {
                         "reservationDate",
                         """
                                 {"organizerId":1,"reservationDate":null}
+                                """
+                )
+        );
+    }
+
+    private static Stream<Arguments> invalidManualRequests() {
+        return Stream.of(
+                Arguments.of(
+                        "null reservationDate",
+                        "reservationDate",
+                        """
+                                {"reservationDate":null,"customerName":"Joao da Silva"}
+                                """
+                ),
+                Arguments.of(
+                        "null customerName",
+                        "customerName",
+                        """
+                                {"reservationDate":"2026-10-26","customerName":null}
+                                """
+                ),
+                Arguments.of(
+                        "blank customerName",
+                        "customerName",
+                        """
+                                {"reservationDate":"2026-10-26","customerName":"   "}
+                                """
+                ),
+                Arguments.of(
+                        "customerName longer than 120 characters",
+                        "customerName",
+                        """
+                                {"reservationDate":"2026-10-26","customerName":"%s"}
+                                """.formatted("a".repeat(121))
+                ),
+                Arguments.of(
+                        "phone containing letters",
+                        "customerPhone",
+                        """
+                                {"reservationDate":"2026-10-26","customerName":"Joao","customerPhone":"11 9999A-1234"}
+                                """
+                ),
+                Arguments.of(
+                        "phone with fewer than 10 digits",
+                        "customerPhone",
+                        """
+                                {"reservationDate":"2026-10-26","customerName":"Joao","customerPhone":"119999912"}
+                                """
+                ),
+                Arguments.of(
+                        "phone with more than 11 digits",
+                        "customerPhone",
+                        """
+                                {"reservationDate":"2026-10-26","customerName":"Joao","customerPhone":"119999912345"}
+                                """
+                ),
+                Arguments.of(
+                        "formatted phone longer than 20 characters",
+                        "customerPhone",
+                        """
+                                {"reservationDate":"2026-10-26","customerName":"Joao","customerPhone":"( 11 ) 9 9 9 9 9 - 1 2 3 4"}
                                 """
                 )
         );

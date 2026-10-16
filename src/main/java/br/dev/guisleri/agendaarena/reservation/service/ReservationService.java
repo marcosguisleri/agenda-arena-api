@@ -73,6 +73,42 @@ public class ReservationService {
         return saveReservation(reservation);
     }
 
+    @Transactional
+    public Reservation createManualReservation(
+            Long establishmentId,
+            Long sportFieldId,
+            Long scheduleSlotId,
+            LocalDate reservationDate,
+            String customerName,
+            String customerPhone
+    ) {
+
+        String normalizedName = customerName.trim();
+
+        String normalizedPhone =
+                customerPhone == null || customerPhone.isBlank()
+                        ? null
+                        : customerPhone.replaceAll("\\D", "");
+
+        ScheduleSlot scheduleSlot =
+                findReservableScheduleSlot(
+                        establishmentId,
+                        sportFieldId,
+                        scheduleSlotId,
+                        reservationDate
+                );
+
+        Reservation reservation =
+                Reservation.manual(
+                        scheduleSlot,
+                        reservationDate,
+                        normalizedName,
+                        normalizedPhone
+                );
+
+        return saveReservation(reservation);
+    }
+
     private ScheduleSlot findReservableScheduleSlot(
             Long establishmentId,
             Long sportFieldId,

@@ -26,7 +26,12 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final Clock clock;
 
-    public ReservationService(UserService userService, ScheduleSlotService scheduleSlotService, ReservationRepository reservationRepository, Clock clock) {
+    public ReservationService(
+            UserService userService,
+            ScheduleSlotService scheduleSlotService,
+            ReservationRepository reservationRepository,
+            Clock clock
+    ) {
         this.userService = userService;
         this.scheduleSlotService = scheduleSlotService;
         this.reservationRepository = reservationRepository;
@@ -34,7 +39,7 @@ public class ReservationService {
     }
 
     @Transactional
-    public Reservation createReservation(
+    public Reservation createOnlineReservation(
             Long establishmentId,
             Long sportFieldId,
             Long scheduleSlotId,
@@ -42,17 +47,48 @@ public class ReservationService {
             LocalDate reservationDate
     ) {
 
+        User organizer = userService.findUserById(organizerId);
+
+        if (!organizer.isActive()) {
+            throw new ReservationNotAllowedException(
+                    "Organizer is not active"
+            );
+        }
+
+        ScheduleSlot scheduleSlot =
+                findReservableScheduleSlot(
+                        establishmentId,
+                        sportFieldId,
+                        scheduleSlotId,
+                        reservationDate
+                );
+
+        Reservation reservation =
+                Reservation.online(
+                        organizer,
+                        scheduleSlot,
+                        reservationDate
+                );
+
+        return saveReservation(reservation);
+    }
+
+    private ScheduleSlot findReservableScheduleSlot(
+            Long establishmentId,
+            Long sportFieldId,
+            Long scheduleSlotId,
+            LocalDate reservationDate
+    ) {
+
         ZonedDateTime now = ZonedDateTime.now(clock);
         LocalDate currentDate = now.toLocalDate();
         LocalTime currentTime = now.toLocalTime();
 
-        if (reservationDate.isBefore(currentDate))
-            throw new ReservationNotAllowedException("Reservation date cannot be in the past");
-
-        User organizer = userService.findUserById(organizerId);
-
-        if (!organizer.isActive())
-            throw new ReservationNotAllowedException("Organizer is not active");
+        if (reservationDate.isBefore(currentDate)) {
+            throw new ReservationNotAllowedException(
+                    "Reservation date cannot be in the past"
+            );
+        }
 
         ScheduleSlot scheduleSlot =
                 scheduleSlotService.findBookableScheduleSlot(
@@ -61,35 +97,51 @@ public class ReservationService {
                         scheduleSlotId
                 );
 
-        if (!reservationDate.getDayOfWeek().equals(scheduleSlot.getDayOfWeek())) {
+        if (!reservationDate
+                .getDayOfWeek()
+                .equals(scheduleSlot.getDayOfWeek())) {
+
             throw new ReservationNotAllowedException(
                     "Reservation date does not match schedule slot day of week"
             );
         }
 
-        if (reservationDate.equals(currentDate)) {
-            if (!scheduleSlot.getStartTime().isAfter(currentTime))
-                throw new ReservationNotAllowedException("Reservation time cannot be in the past");
+        if (reservationDate.equals(currentDate)
+                && !scheduleSlot.getStartTime().isAfter(currentTime)) {
+
+            throw new ReservationNotAllowedException(
+                    "Reservation time cannot be in the past"
+            );
         }
 
-        boolean reservationExists = reservationRepository
-                .existsByScheduleSlotIdAndReservationDateAndStatus(
-                        scheduleSlotId,
-                        reservationDate,
-                        ReservationStatus.CONFIRMED
-                );
+        boolean reservationExists =
+                reservationRepository
+                        .existsByScheduleSlotIdAndReservationDateAndStatus(
+                                scheduleSlotId,
+                                reservationDate,
+                                ReservationStatus.CONFIRMED
+                        );
 
         if (reservationExists) {
-            throw new ReservationAlreadyExistsException("Schedule slot is already reserved for this date");
+            throw new ReservationAlreadyExistsException(
+                    "Schedule slot is already reserved for this date"
+            );
         }
 
+        return scheduleSlot;
+    }
+
+    private Reservation saveReservation(Reservation reservation) {
+
         try {
-            return reservationRepository.saveAndFlush(
-                    Reservation.online(organizer, scheduleSlot, reservationDate)
-            );
+            return reservationRepository.saveAndFlush(reservation);
+
         } catch (DataIntegrityViolationException exception) {
+
             if (exception.getMessage() != null
-                    && exception.getMessage().contains("idx_unique_active_reservation")) {
+                    && exception.getMessage()
+                    .contains("idx_unique_active_reservation")) {
+
                 throw new ReservationAlreadyExistsException(
                         "Schedule slot is already reserved for this date"
                 );
@@ -97,7 +149,5 @@ public class ReservationService {
 
             throw exception;
         }
-
     }
-
 }

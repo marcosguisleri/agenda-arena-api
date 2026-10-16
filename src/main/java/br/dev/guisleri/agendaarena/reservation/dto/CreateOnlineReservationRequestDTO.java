@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Positive;
 
 import java.time.LocalDate;
 
-public record CreateReservationRequestDTO(
+public record CreateOnlineReservationRequestDTO(
 
         @NotNull
         @Positive

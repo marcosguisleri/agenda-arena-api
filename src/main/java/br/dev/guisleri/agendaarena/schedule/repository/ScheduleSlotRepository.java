@@ -22,4 +22,15 @@ public interface ScheduleSlotRepository extends JpaRepository<ScheduleSlot, Long
             Long sportFieldId
     );
 
+    @EntityGraph(attributePaths = "sportField")
+    List<ScheduleSlot> findAllBySportFieldIdAndDayOfWeekAndActiveTrueOrderByStartTime(
+            Long sportFieldId,
+            DayOfWeek dayOfWeek
+    );
+
+    List<ScheduleSlot> findAllBySportFieldIdAndDayOfWeek(
+            Long sportFieldId,
+            DayOfWeek dayOfWeek
+    );
+
 }

@@ -16,6 +16,19 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             ReservationStatus status
     );
 
+    boolean existsByScheduleSlotIdAndStatusAndReservationDateBetween(
+            Long scheduleSlotId,
+            ReservationStatus status,
+            LocalDate startDate,
+            LocalDate endDate
+    );
+
+    boolean existsByScheduleSlotIdAndStatusAndReservationDateGreaterThanEqual(
+            Long scheduleSlotId,
+            ReservationStatus status,
+            LocalDate startDate
+    );
+
     @EntityGraph(attributePaths = "scheduleSlot")
     List<Reservation> findAllByScheduleSlotSportFieldIdAndReservationDateAndStatus(
             Long sportFieldId,

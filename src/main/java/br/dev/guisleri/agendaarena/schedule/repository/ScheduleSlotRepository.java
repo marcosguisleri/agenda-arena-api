@@ -1,8 +1,12 @@
 package br.dev.guisleri.agendaarena.schedule.repository;
 
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
@@ -31,6 +35,18 @@ public interface ScheduleSlotRepository extends JpaRepository<ScheduleSlot, Long
     List<ScheduleSlot> findAllBySportFieldIdAndDayOfWeek(
             Long sportFieldId,
             DayOfWeek dayOfWeek
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT s
+        FROM ScheduleSlot s
+        WHERE s.id = :scheduleSlotId
+          AND s.sportField.id = :sportFieldId
+        """)
+    Optional<ScheduleSlot> findByIdAndSportFieldIdForUpdate(
+            @Param("scheduleSlotId") Long scheduleSlotId,
+            @Param("sportFieldId") Long sportFieldId
     );
 
 }

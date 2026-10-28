@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.reservation.entity;
 
+import br.dev.guisleri.agendaarena.reservation.model.ReservationOrigin;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
 import br.dev.guisleri.agendaarena.user.entity.User;
@@ -18,8 +19,8 @@ public class Reservation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "organizer_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organizer_id")
     private User organizer;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -42,11 +43,23 @@ public class Reservation {
     @Enumerated(EnumType.STRING)
     private ReservationStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ReservationOrigin origin;
+
+    @Column(name = "customer_name", length = 120)
+    private String customerName;
+
+    @Column(name = "customer_phone", length = 20)
+    private String customerPhone;
+
     protected Reservation() {
     }
 
-    public Reservation(User organizer, ScheduleSlot scheduleSlot, LocalDate reservationDate) {
-        this.organizer = organizer;
+    private Reservation(
+            ScheduleSlot scheduleSlot,
+            LocalDate reservationDate
+    ) {
         this.scheduleSlot = scheduleSlot;
         this.reservationDate = reservationDate;
 
@@ -55,6 +68,37 @@ public class Reservation {
         this.price = scheduleSlot.getPrice();
 
         this.status = ReservationStatus.CONFIRMED;
+    }
+
+    public static Reservation online(
+            User organizer,
+            ScheduleSlot scheduleSlot,
+            LocalDate reservationDate
+    ) {
+        Reservation reservation =
+                new Reservation(scheduleSlot, reservationDate);
+
+        reservation.organizer = organizer;
+        reservation.origin = ReservationOrigin.ONLINE;
+
+        return reservation;
+    }
+
+    public static Reservation manual(
+            ScheduleSlot scheduleSlot,
+            LocalDate reservationDate,
+            String customerName,
+            String customerPhone
+    ) {
+        Reservation reservation =
+                new Reservation(scheduleSlot, reservationDate);
+
+        reservation.customerName = customerName;
+        reservation.customerPhone = customerPhone;
+
+        reservation.origin = ReservationOrigin.MANUAL;
+
+        return reservation;
     }
 
     public Long getId() {
@@ -87,5 +131,17 @@ public class Reservation {
 
     public ReservationStatus getStatus() {
         return status;
+    }
+
+    public ReservationOrigin getOrigin() {
+        return origin;
+    }
+
+    public String getCustomerName() {
+        return customerName;
+    }
+
+    public String getCustomerPhone() {
+        return customerPhone;
     }
 }

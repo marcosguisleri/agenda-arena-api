@@ -182,4 +182,60 @@ public class ScheduleSlotService {
 
     }
 
+    public ScheduleSlot findBookableScheduleSlotForUpdate(
+            Long establishmentId,
+            Long sportFieldId,
+            Long scheduleSlotId
+    ) {
+
+        SportField sportField =
+                sportFieldService.findSportFieldById(
+                        establishmentId,
+                        sportFieldId
+                );
+
+        Establishment establishment =
+                establishmentService.findEstablishmentById(
+                        establishmentId
+                );
+
+        if (!establishment.isActive()) {
+            throw new ScheduleSlotNotBookableException(
+                    "Establishment with id " + establishmentId
+                            + " is not active"
+            );
+        }
+
+        if (!sportField.isActive()) {
+            throw new ScheduleSlotNotBookableException(
+                    "Sport field with id " + sportFieldId
+                            + " is not active"
+            );
+        }
+
+        ScheduleSlot scheduleSlot =
+                scheduleSlotRepository
+                        .findByIdAndSportFieldIdForUpdate(
+                                scheduleSlotId,
+                                sportFieldId
+                        )
+                        .orElseThrow(() ->
+                                new ScheduleSlotNotFoundException(
+                                        "Schedule slot with id " + scheduleSlotId
+                                                + " not found for sport field "
+                                                + sportFieldId
+                                )
+                        );
+
+        if (!scheduleSlot.isActive()) {
+            throw new ScheduleSlotNotBookableException(
+                    "Schedule slot with id " + scheduleSlotId
+                            + " is not active"
+            );
+        }
+
+        return scheduleSlot;
+
+    }
+
 }

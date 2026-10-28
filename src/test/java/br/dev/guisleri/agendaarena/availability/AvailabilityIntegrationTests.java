@@ -2,8 +2,10 @@ package br.dev.guisleri.agendaarena.availability;
 
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentRepository;
+import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
+import br.dev.guisleri.agendaarena.reservation.repository.RecurringReservationRepository;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
 import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
@@ -55,6 +57,8 @@ class AvailabilityIntegrationTests {
     private static final ZoneId SAO_PAULO = ZoneId.of("America/Sao_Paulo");
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 19);
     private static final LocalDate NEXT_MONDAY = LocalDate.of(2026, 10, 26);
+    private static final LocalDate FOLLOWING_MONDAY = LocalDate.of(2026, 11, 2);
+    private static final LocalDate THIRD_MONDAY = LocalDate.of(2026, 11, 9);
     private static final MutableClock TEST_CLOCK = new MutableClock(SAO_PAULO);
 
     @Container
@@ -66,6 +70,9 @@ class AvailabilityIntegrationTests {
 
     @Autowired
     private ReservationRepository reservationRepository;
+
+    @Autowired
+    private RecurringReservationRepository recurringReservationRepository;
 
     @Autowired
     private ScheduleSlotRepository scheduleSlotRepository;
@@ -97,6 +104,7 @@ class AvailabilityIntegrationTests {
 
     @BeforeEach
     void prepareDatabase() {
+        recurringReservationRepository.deleteAllInBatch();
         reservationRepository.deleteAllInBatch();
         scheduleSlotRepository.deleteAllInBatch();
         userRepository.deleteAllInBatch();
@@ -164,6 +172,79 @@ class AvailabilityIntegrationTests {
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].scheduleSlotId").value(slot.getId().intValue()))
                 .andExpect(jsonPath("$[0].available").value(true));
+    }
+
+    @Test
+    void shouldReturnUnavailableWhenRecurringReservationCoversDate()
+            throws Exception {
+        ScheduleSlot recurringSlot = createSlot(DayOfWeek.MONDAY, "19:00");
+        ScheduleSlot availableSlot = createSlot(DayOfWeek.MONDAY, "20:00");
+        createRecurringReservation(
+                recurringSlot,
+                NEXT_MONDAY,
+                THIRD_MONDAY
+        );
+
+        availabilityFor(FOLLOWING_MONDAY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].scheduleSlotId")
+                        .value(recurringSlot.getId().intValue()))
+                .andExpect(jsonPath("$[0].available").value(false))
+                .andExpect(jsonPath("$[1].scheduleSlotId")
+                        .value(availableSlot.getId().intValue()))
+                .andExpect(jsonPath("$[1].available").value(true));
+    }
+
+    @Test
+    void shouldReturnAvailableWhenDateIsOutsideRecurringReservationPeriod()
+            throws Exception {
+        ScheduleSlot slot = createSlot(DayOfWeek.MONDAY, "19:00");
+        createRecurringReservation(
+                slot,
+                NEXT_MONDAY,
+                FOLLOWING_MONDAY
+        );
+
+        availabilityFor(THIRD_MONDAY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].scheduleSlotId")
+                        .value(slot.getId().intValue()))
+                .andExpect(jsonPath("$[0].available").value(true));
+    }
+
+    @Test
+    void shouldReturnUnavailableForRecurringReservationWithoutEndDate()
+            throws Exception {
+        ScheduleSlot slot = createSlot(DayOfWeek.MONDAY, "19:00");
+        createRecurringReservation(slot, NEXT_MONDAY, null);
+
+        availabilityFor(THIRD_MONDAY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].scheduleSlotId")
+                        .value(slot.getId().intValue()))
+                .andExpect(jsonPath("$[0].available").value(false));
+    }
+
+    @Test
+    void shouldReturnUnavailableOnRecurringReservationBoundaries()
+            throws Exception {
+        ScheduleSlot slot = createSlot(DayOfWeek.MONDAY, "19:00");
+        createRecurringReservation(
+                slot,
+                NEXT_MONDAY,
+                FOLLOWING_MONDAY
+        );
+
+        availabilityFor(NEXT_MONDAY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].available").value(false));
+
+        availabilityFor(FOLLOWING_MONDAY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].available").value(false));
     }
 
     @Test
@@ -370,6 +451,21 @@ class AvailabilityIntegrationTests {
                 "password-hash"
         ));
         return reservationRepository.save(Reservation.online(organizer, slot, date));
+    }
+
+    private RecurringReservation createRecurringReservation(
+            ScheduleSlot slot,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+        return recurringReservationRepository.save(new RecurringReservation(
+                slot,
+                null,
+                "Responsavel pela recorrencia",
+                "11999991234",
+                startDate,
+                endDate
+        ));
     }
 
     private ResultActions availabilityFor(LocalDate date) throws Exception {

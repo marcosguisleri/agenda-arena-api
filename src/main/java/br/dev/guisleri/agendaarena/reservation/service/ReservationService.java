@@ -3,13 +3,12 @@ package br.dev.guisleri.agendaarena.reservation.service;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationAlreadyExistsException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotAllowedException;
-import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
 import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.service.UserService;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -23,17 +22,19 @@ public class ReservationService {
 
     private final UserService userService;
     private final ScheduleSlotService scheduleSlotService;
+    private final SlotOccupancyService slotOccupancyService;
     private final ReservationRepository reservationRepository;
     private final Clock clock;
 
     public ReservationService(
             UserService userService,
-            ScheduleSlotService scheduleSlotService,
+            ScheduleSlotService scheduleSlotService, SlotOccupancyService slotOccupancyService,
             ReservationRepository reservationRepository,
             Clock clock
     ) {
         this.userService = userService;
         this.scheduleSlotService = scheduleSlotService;
+        this.slotOccupancyService = slotOccupancyService;
         this.reservationRepository = reservationRepository;
         this.clock = clock;
     }
@@ -127,7 +128,7 @@ public class ReservationService {
         }
 
         ScheduleSlot scheduleSlot =
-                scheduleSlotService.findBookableScheduleSlot(
+                scheduleSlotService.findBookableScheduleSlotForUpdate(
                         establishmentId,
                         sportFieldId,
                         scheduleSlotId
@@ -150,15 +151,13 @@ public class ReservationService {
             );
         }
 
-        boolean reservationExists =
-                reservationRepository
-                        .existsByScheduleSlotIdAndReservationDateAndStatus(
-                                scheduleSlotId,
-                                reservationDate,
-                                ReservationStatus.CONFIRMED
-                        );
+        boolean occupied =
+                slotOccupancyService.isOccupied(
+                        scheduleSlotId,
+                        reservationDate
+                );
 
-        if (reservationExists) {
+        if (occupied) {
             throw new ReservationAlreadyExistsException(
                     "Schedule slot is already reserved for this date"
             );

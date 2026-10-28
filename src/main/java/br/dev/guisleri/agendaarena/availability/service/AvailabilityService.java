@@ -4,9 +4,7 @@ import br.dev.guisleri.agendaarena.availability.dto.AvailabilityResponseDTO;
 import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.service.EstablishmentService;
-import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
-import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
-import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
+import br.dev.guisleri.agendaarena.reservation.service.SlotOccupancyService;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
 import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.sportfield.entity.SportField;
@@ -16,22 +14,21 @@ import org.springframework.stereotype.Service;
 import java.time.*;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class AvailabilityService {
 
     private final EstablishmentService establishmentService;
     private final SportFieldService sportFieldService;
+    private final SlotOccupancyService slotOccupancyService;
     private final ScheduleSlotRepository scheduleSlotRepository;
-    private final ReservationRepository reservationRepository;
     private final Clock clock;
 
-    public AvailabilityService(EstablishmentService establishmentService, SportFieldService sportFieldService, ScheduleSlotRepository scheduleSlotRepository, ReservationRepository reservationRepository, Clock clock) {
+    public AvailabilityService(EstablishmentService establishmentService, SportFieldService sportFieldService, SlotOccupancyService slotOccupancyService, ScheduleSlotRepository scheduleSlotRepository, Clock clock) {
         this.establishmentService = establishmentService;
         this.sportFieldService = sportFieldService;
+        this.slotOccupancyService = slotOccupancyService;
         this.scheduleSlotRepository = scheduleSlotRepository;
-        this.reservationRepository = reservationRepository;
         this.clock = clock;
     }
 
@@ -88,21 +85,16 @@ public class AvailabilityService {
                     .toList();
         }
 
-        List<Reservation> reservations =
-                reservationRepository.findAllByScheduleSlotSportFieldIdAndReservationDateAndStatus(
+        Set<Long> occupiedSlotIds =
+                slotOccupancyService.findOccupiedScheduleSlotIds(
                         sportFieldId,
-                        date,
-                        ReservationStatus.CONFIRMED
+                        date
                 );
-
-        Set<Long> reservedSlotIds = reservations.stream()
-                .map(reservation -> reservation.getScheduleSlot().getId())
-                .collect(Collectors.toSet());
 
         return scheduleSlots.stream()
                 .map(scheduleSlot -> {
                     boolean available =
-                            !reservedSlotIds.contains(scheduleSlot.getId());
+                            !occupiedSlotIds.contains(scheduleSlot.getId());
 
                     return new AvailabilityResponseDTO(
                             scheduleSlot.getId(),

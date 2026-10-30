@@ -5,9 +5,13 @@ import jakarta.validation.constraints.Positive;
 
 import java.time.LocalDate;
 
+/**
+ * {@code organizerId} é opcional: o organizador autenticado reserva para si mesmo (o id vem do
+ * token). Só o administrador do estabelecimento precisa informá-lo, para reservar em nome de um
+ * usuário.
+ */
 public record CreateOnlineReservationRequestDTO(
 
-        @NotNull
         @Positive
         Long organizerId,
 

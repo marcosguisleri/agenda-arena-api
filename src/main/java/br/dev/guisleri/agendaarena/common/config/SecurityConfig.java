@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -44,6 +45,17 @@ public class SecurityConfig {
                     + "/schedule-slots/{scheduleSlotId}"
     };
 
+    /**
+     * Documentação da API. Em produção, desligue com API_DOCS_ENABLED=false (as rotas deixam de
+     * existir; esta liberação passa a não ter efeito).
+     */
+    private static final String[] API_DOCS_PATTERNS = {
+            "/v3/api-docs",
+            "/v3/api-docs/**",
+            "/swagger-ui.html",
+            "/swagger-ui/**"
+    };
+
     private static final String ONLINE_RESERVATION_PATTERN =
             "/establishments/{establishmentId}/sports-fields/{sportFieldId}"
                     + "/schedule-slots/{scheduleSlotId}/reservations";
@@ -75,6 +87,7 @@ public class SecurityConfig {
             EstablishmentAccessAuthorization establishmentAccess
     ) throws Exception {
         http
+                .cors(Customizer.withDefaults())
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -97,6 +110,7 @@ public class SecurityConfig {
                         // Públicas
                         .requestMatchers(HttpMethod.POST, "/auth/login", "/users").permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_PATTERNS).permitAll()
+                        .requestMatchers(HttpMethod.GET, API_DOCS_PATTERNS).permitAll()
 
                         // Só a plataforma (dona do sistema)
                         .requestMatchers(HttpMethod.POST, "/establishments")

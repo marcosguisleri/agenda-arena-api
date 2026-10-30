@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.user.entity;
 
+import br.dev.guisleri.agendaarena.user.model.UserRole;
 import jakarta.persistence.*;
 
 @Entity
@@ -25,15 +26,30 @@ public class User {
     @Column(nullable = false)
     private boolean active;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private UserRole role;
+
     protected User() {
     }
 
     public User(String name, String email, String phone, String passwordHash) {
+        this(name, email, phone, passwordHash, UserRole.ORGANIZER);
+    }
+
+    public User(
+            String name,
+            String email,
+            String phone,
+            String passwordHash,
+            UserRole role
+    ) {
         this.name = name;
         this.email = email;
         this.phone = phone;
         this.passwordHash = passwordHash;
         this.active = true;
+        this.role = role;
     }
 
     public Long getId() {
@@ -58,5 +74,9 @@ public class User {
 
     public boolean isActive() {
         return active;
+    }
+
+    public UserRole getRole() {
+        return role;
     }
 }

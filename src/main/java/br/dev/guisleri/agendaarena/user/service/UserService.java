@@ -4,6 +4,7 @@ import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.exception.InvalidPasswordException;
 import br.dev.guisleri.agendaarena.user.exception.UserAlreadyExistsException;
 import br.dev.guisleri.agendaarena.user.exception.UserNotFoundException;
+import br.dev.guisleri.agendaarena.user.model.UserRole;
 import br.dev.guisleri.agendaarena.user.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,11 +23,25 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    /**
+     * Cadastro público: sempre cria um organizador. Outros papéis só são atribuídos por fluxos
+     * internos (administrador de estabelecimento, administrador da plataforma).
+     */
     public User createUser(
             String name,
             String email,
             String phone,
             String password
+    ) {
+        return createUser(name, email, phone, password, UserRole.ORGANIZER);
+    }
+
+    public User createUser(
+            String name,
+            String email,
+            String phone,
+            String password,
+            UserRole role
     ) {
 
         String normalizedName = name.trim();
@@ -52,7 +67,8 @@ public class UserService {
                 normalizedName,
                 normalizedEmail,
                 normalizedPhone,
-                passwordHash
+                passwordHash,
+                role
         );
 
         return userRepository.save(user);

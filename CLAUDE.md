@@ -90,7 +90,8 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - **Toda rota nova de gestão precisa entrar em `EstablishmentAuthorizationIntegrationTests.managementEndpoints()`**
   (testes de outro estabelecimento = 404 sem efeito colateral, organizador = 403, anônimo = 401). Sem isso, a rota não está pronta.
 - Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES`, `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`.
-- CORS para o front Angular ainda NÃO está configurado.
+- **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
+- **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
 - Evite vazar detalhes internos em mensagens de erro (SQL, nomes de constraint) na resposta HTTP.
 
 ## Testes
@@ -164,8 +165,7 @@ monólito modular, Angular separado consumindo esta API REST.
   provedor de nuvem específico.
 
 ### Recomendado, não definitivo
-- Sessão: hoje JWT de 60 min sem refresh token nem revogação (decisão pendente nº 6). O front precisará de CORS e de uma estratégia
-  de renovação.
+- Sessão: hoje JWT de 60 min sem refresh token nem revogação (decisão pendente nº 6). O front precisará de uma estratégia de renovação.
 
 ### Pendente (propor recomendação e aguardar; NÃO presumir)
 1. Antecedência mínima/máxima para reservar e prazo de cancelamento. 2. Matriz final de estados/transições por perfil.
@@ -196,6 +196,6 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | "Minhas reservas" (`GET /me/reservations`, `GET /me/reservations/{id}`) | **implementado e testado**: só as do usuário do token; de outro → 404; sem paginação ainda | `MeReservationController`, `MyReservationIntegrationTests` |
 | Spring Security/JWT, papéis, vínculo admin↔estabelecimento, isolamento | **implementado e testado** (30/10/2026): V11 (`users.role`, `establishment_admins`), login, 401/403/404 conforme a seção Segurança, `GET /me/establishments` | `SecurityConfig`, `EstablishmentAccessAuthorization`, `AuthenticationIntegrationTests`, `EstablishmentAuthorizationIntegrationTests` |
 | Partida: página, participantes, rateio, Pix, times, resumo | pendente | sem pacote |
-| OpenAPI/Swagger | pendente | `pom.xml` sem springdoc |
+| CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

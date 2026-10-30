@@ -1,8 +1,11 @@
 package br.dev.guisleri.agendaarena.reservation.controller;
 
+import br.dev.guisleri.agendaarena.reservation.dto.CreateRecurringReservationReleaseRequestDTO;
 import br.dev.guisleri.agendaarena.reservation.dto.CreateRecurringReservationRequestDTO;
+import br.dev.guisleri.agendaarena.reservation.dto.RecurringReservationReleaseResponseDTO;
 import br.dev.guisleri.agendaarena.reservation.dto.RecurringReservationResponseDTO;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
+import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservationRelease;
 import br.dev.guisleri.agendaarena.reservation.service.RecurringReservationService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -44,6 +47,30 @@ public class RecurringReservationController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(RecurringReservationResponseDTO.fromEntity(recurringReservation));
+
+    }
+
+    @PostMapping("/{recurringReservationId}/releases")
+    public ResponseEntity<RecurringReservationReleaseResponseDTO> releaseOccurrence(
+            @PathVariable Long establishmentId,
+            @PathVariable Long sportFieldId,
+            @PathVariable Long scheduleSlotId,
+            @PathVariable Long recurringReservationId,
+            @Valid @RequestBody CreateRecurringReservationReleaseRequestDTO requestDTO
+    ) {
+
+        RecurringReservationRelease release =
+                recurringReservationService.releaseOccurrence(
+                        establishmentId,
+                        sportFieldId,
+                        scheduleSlotId,
+                        recurringReservationId,
+                        requestDTO.occurrenceDate()
+                );
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(RecurringReservationReleaseResponseDTO.fromEntity(release));
 
     }
 

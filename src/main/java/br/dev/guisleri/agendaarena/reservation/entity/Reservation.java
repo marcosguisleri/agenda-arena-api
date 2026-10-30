@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.reservation.entity;
 
+import br.dev.guisleri.agendaarena.reservation.exception.ReservationInvalidStateException;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationOrigin;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
@@ -39,7 +40,7 @@ public class Reservation {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     @Enumerated(EnumType.STRING)
     private ReservationStatus status;
 
@@ -99,6 +100,61 @@ public class Reservation {
         reservation.origin = ReservationOrigin.MANUAL;
 
         return reservation;
+    }
+
+    /**
+     * Cancelamento pelo estabelecimento. Vale para reserva confirmada e também para a que tem
+     * um pedido de cancelamento pendente (é assim que o administrador aprova o pedido).
+     */
+    public void cancel() {
+        if (this.status != ReservationStatus.CONFIRMED
+                && this.status != ReservationStatus.CANCELLATION_REQUESTED) {
+            throw new ReservationInvalidStateException(
+                    "Only confirmed reservations can be cancelled"
+            );
+        }
+
+        this.status = ReservationStatus.CANCELLED;
+    }
+
+    public void requestCancellation() {
+        if (this.status != ReservationStatus.CONFIRMED) {
+            throw new ReservationInvalidStateException(
+                    "Cancellation can only be requested for confirmed reservations"
+            );
+        }
+
+        this.status = ReservationStatus.CANCELLATION_REQUESTED;
+    }
+
+    public void refuseCancellationRequest() {
+        if (this.status != ReservationStatus.CANCELLATION_REQUESTED) {
+            throw new ReservationInvalidStateException(
+                    "Reservation has no pending cancellation request"
+            );
+        }
+
+        this.status = ReservationStatus.CONFIRMED;
+    }
+
+    public void complete() {
+        if (this.status != ReservationStatus.CONFIRMED) {
+            throw new ReservationInvalidStateException(
+                    "Only confirmed reservations can be completed"
+            );
+        }
+
+        this.status = ReservationStatus.COMPLETED;
+    }
+
+    public void markNoShow() {
+        if (this.status != ReservationStatus.CONFIRMED) {
+            throw new ReservationInvalidStateException(
+                    "Only confirmed reservations can be marked as no-show"
+            );
+        }
+
+        this.status = ReservationStatus.NO_SHOW;
     }
 
     public Long getId() {

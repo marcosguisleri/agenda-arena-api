@@ -7,12 +7,14 @@ import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotFoundExce
 import br.dev.guisleri.agendaarena.reservation.exception.SlotBlockConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotAllowedException;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
+import br.dev.guisleri.agendaarena.reservation.repository.ReservationSlotKey;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
 import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotNotFoundException;
 import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.service.UserService;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -231,26 +233,38 @@ public class ReservationService {
     }
 
     /**
+     * Reserva do organizador lida DEPOIS de travar o horário dela, para que o estado lido seja o
+     * confirmado por quem tinha o lock. Reserva de outro organizador: 404.
+     * <p>
+     * Exige transação aberta pelo chamador ({@code MANDATORY}): fora dela o lock seria liberado no
+     * retorno e a reserva devolvida já não estaria protegida.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Reservation findOrganizerReservationForUpdate(Long organizerId, Long reservationId) {
+        ReservationSlotKey slotKey = reservationRepository
+                .findSlotKeyByIdAndOrganizerId(reservationId, organizerId)
+                .orElseThrow(() -> reservationNotFound(reservationId));
+
+        scheduleSlotRepository
+                .findByIdAndSportFieldIdForUpdate(
+                        slotKey.scheduleSlotId(),
+                        slotKey.sportFieldId()
+                )
+                .orElseThrow(() -> new ScheduleSlotNotFoundException(
+                        "Schedule slot with id " + slotKey.scheduleSlotId() + " not found"
+                ));
+
+        return findOrganizerReservation(organizerId, reservationId);
+    }
+
+    /**
      * O organizador pede o cancelamento da própria reserva. A reserva continua ocupando o horário
      * até o estabelecimento decidir. Trava o horário antes de ler a reserva para serializar com
      * as ações do administrador.
      */
     @Transactional
     public Reservation requestCancellation(Long organizerId, Long reservationId) {
-        Long scheduleSlotId = reservationRepository
-                .findScheduleSlotIdByIdAndOrganizerId(reservationId, organizerId)
-                .orElseThrow(() -> reservationNotFound(reservationId));
-        Long sportFieldId = reservationRepository
-                .findSportFieldIdByIdAndOrganizerId(reservationId, organizerId)
-                .orElseThrow(() -> reservationNotFound(reservationId));
-
-        scheduleSlotRepository
-                .findByIdAndSportFieldIdForUpdate(scheduleSlotId, sportFieldId)
-                .orElseThrow(() -> new ScheduleSlotNotFoundException(
-                        "Schedule slot with id " + scheduleSlotId + " not found"
-                ));
-
-        Reservation reservation = findOrganizerReservation(organizerId, reservationId);
+        Reservation reservation = findOrganizerReservationForUpdate(organizerId, reservationId);
 
         ensureCancellationCanBeRequested(reservation);
 

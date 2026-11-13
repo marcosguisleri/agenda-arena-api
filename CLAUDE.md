@@ -24,7 +24,7 @@ docker compose up -d                       # Postgres local (usa .env; modelo em
 ## Arquitetura (não reescrever)
 
 Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entity / exception / repository / service`
-(e `model` para enums): `establishment`, `sportfield`, `schedule`, `user`, `reservation`, `availability`, `common`.
+(e `model` para enums): `establishment`, `sportfield`, `schedule`, `user`, `reservation`, `availability`, `match`, `common`.
 
 - **Controller**: fino. Recebe DTO validado (`@Valid`), chama o service, devolve `ResponseEntity` com DTO.
   URLs aninhadas: `/establishments/{id}/sports-fields/{id}/schedule-slots/{id}/reservations`.
@@ -40,8 +40,9 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Regras críticas de domínio e concorrência (NÃO alterar sem pedido explícito)
 
-1. **Tempo**: injete o bean `Clock` (fuso `America/Sao_Paulo`, `ClockConfig`). Nunca use `LocalDate.now()` /
-   `Instant.now()` sem `Clock`. Os testes substituem o relógio por `MutableClock`.
+1. **Tempo e aleatoriedade**: injete o bean `Clock` (fuso `America/Sao_Paulo`, `ClockConfig`). Nunca use `LocalDate.now()` /
+   `Instant.now()` sem `Clock`. Os testes substituem o relógio por `MutableClock`. Do mesmo jeito, sorteios usam o bean
+   `RandomGenerator` (`RandomConfig`, `SecureRandom`); testes trocam por um `Random` com semente fixa (`@Primary`).
 2. **Reserva de horário**: todo fluxo que cria reserva (avulsa online/manual ou recorrente) primeiro obtém o
    `ScheduleSlot` com **lock pessimista** (`ScheduleSlotService.findBookableScheduleSlotForUpdate`) e só então valida
    (data no passado, dia da semana igual ao do slot, ocupação). Não mover validações para antes do lock.
@@ -60,13 +61,22 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
    reserva de 120 min, entidade de agrupamento, cancelamento em cascata, nem unir páginas de partida de reservas consecutivas.
    O modelo atual (um slot por reserva) está correto: não é bug nem funcionalidade faltante.
 
+7. **Partida (lock da partida)**: criar a partida trava o **slot** da reserva (`ReservationService.findOrganizerReservationForUpdate`).
+   Toda alteração da lista/rateio/times trava a **linha de `matches`** (`MatchRepository.findByIdForUpdate` /
+   `findByPublicTokenForUpdate`) **antes** de validar (estado aberto, limite de 4 goleiros, cotas). Para o organizador, primeiro
+   busca o id sem lock e depois trava só `matches` (não estender o `FOR UPDATE` à reserva por join). O limite de goleiros não tem
+   constraint: o lock é a barreira. A inscrição pública não trava o slot (corrida aceita: cancelamento simultâneo pode deixar
+   uma inscrição a mais; a página mostra a reserva cancelada).
+
 ## Banco de dados e migrations
 
-- Flyway em `src/main/resources/db/migration` (V1…V13 existentes). **Nunca edite uma migration já existente**
+- Flyway em `src/main/resources/db/migration` (V1…V17 existentes). **Nunca edite uma migration já existente**
   (nem formatação). Mudança de schema = nova migration `V<n+1>__descricao.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate`: nome de tabela/coluna/tipo da entidade precisa bater com a migration,
   senão a aplicação não sobe e os testes falham.
 - `spring.jpa.open-in-view=false`: não dependa de lazy loading fora de transação/service.
+- Enum mapeado com `@Column(length = 1)` faz o Hibernate esperar `CHAR(1)`; para coluna `VARCHAR(1)` use
+  `@JdbcTypeCode(SqlTypes.VARCHAR)` (ex.: `MatchParticipant.team`).
 - Atenção: o nome da tabela das liberações na V8 é `recurring_reservations_releases` (reservations no plural no meio); a
   entidade `RecurringReservationRelease` foi alinhada a ele. Não edite a V8; qualquer ajuste futuro vai em nova migration.
 
@@ -80,8 +90,10 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
   requisição (`establishment_admins`), então remover um admin vale na hora.
 - **Papéis** (`users.role`): `ORGANIZER` (cadastro público `POST /users`), `ESTABLISHMENT_ADMIN` (criado pelo PLATFORM_ADMIN em
   `POST /establishments/{id}/admins`), `PLATFORM_ADMIN` (criado na subida a partir de `PLATFORM_ADMIN_EMAIL/PASSWORD`).
-- **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, cadastro, e a leitura do
-  catálogo (GET de estabelecimentos, quadras, horários, disponibilidade). Tudo sob `/establishments/{establishmentId}/**` é
+- **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, cadastro, a leitura do
+  catálogo (GET de estabelecimentos, quadras, horários, disponibilidade) e o **link da partida** (`GET /matches/{publicToken}`,
+  `GET /matches/{publicToken}/summary`, `POST /matches/{publicToken}/participants`). O token tem 256 bits (`MatchTokenGenerator`);
+  token inválido → 404 sem repetir o token; a visão pública não expõe ids internos nem dados do organizador. Tudo sob `/establishments/{establishmentId}/**` é
   gestão: só admin vinculado àquele estabelecimento (ou PLATFORM_ADMIN). Estabelecimento de outro → **404** (não revela que
   existe); organizador em rota de gestão → 403; anônimo → 401. Criar estabelecimento, mudar status e criar admins: só PLATFORM_ADMIN.
 - **Reserva online**: o `organizerId` vem do token (ORGANIZER não pode reservar para outro: 403). Admin do estabelecimento reserva
@@ -119,7 +131,36 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Hooks: bloqueiam edição de migrations existentes e de `.env`; ao final do turno rodam Checkstyle (uma única
   rodada de correção). **Nenhum hook roda testes.**
 - Nunca fazer `git commit`, `git push` nem deploy sem pedido explícito. Não adicionar dependências sem justificar.
+- Convenção de git do dono: branches `feat/<assunto>` com PR para `main`; commits no estilo Conventional Commits em inglês
+  (`feat(scope): ...`, `fix: ...`, `chore: ...`, `test: ...`), um assunto por commit; a suíte completa precisa passar antes do commit.
 - Não refatorar fora do escopo pedido; mudanças pequenas e revisáveis.
+
+## Estado atual e próximo passo (atualizado em 13/11/2026)
+
+Concluído e com a suíte completa passando (**482 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
+e manual, recorrência + liberação de ocorrência, bloqueios, cancelamento admin (com "manter bloqueado"), concluída/não compareceu,
+consulta por id e agenda do admin, autenticação JWT + papéis + isolamento por estabelecimento, "minhas reservas", pedido de
+cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–V17)**. Migrations até a **V17**.
+
+**Git**: a Partida está na branch `feat/match`, criada a partir de `feat/release-recurring-occurrence` (segurança, minhas reservas,
+CORS e um commit "wip: backup antes de formatar"), que **ainda não foi mergeada no `main`**. Mergear a base antes de abrir o PR
+da `feat/match`, senão o PR leva tudo junto.
+
+**Próximo (sugestão, aguarda decisão do dono)**: revisar a `feat/match` (`/code-review`, `backend-reviewer`) e organizar os PRs; depois,
+**partida para ocorrências de recorrência** (hoje uma ocorrência não gera linha em `reservations`, então não tem partida; é o caso
+do jogo fixo semanal). Propor desenho e esperar aprovação, como nas demais mudanças estruturais.
+
+Dívidas conhecidas: partida em ocorrência de recorrência (acima); sem limite de requisições nem regeneração do token no link público
+da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
+paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
+refresh token/revogação (decisão pendente nº 6).
+
+Armadilhas já vistas neste projeto: `target/` velho causa erro estranho (use `./mvnw clean test`); **não compile pelo IntelliJ
+enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`);
+coluna `status` é `VARCHAR(30)` (V13); o decoder JWT usa o relógio do sistema, então testes de segurança não podem usar `Clock`
+fixo; testes carregam o `.env` (o admin da plataforma também é criado no banco do container, sem efeito no banco real); clone
+novo **não tem `.env`** (criar a partir do `.env.example`; a API não sobe sem ele); a porta 5432 pode estar ocupada por outro
+projeto local (use outra em `POSTGRES_PORT`).
 
 ## Como colaborar com o dono do projeto
 
@@ -158,7 +199,20 @@ monólito modular, Angular separado consumindo esta API REST.
   nomes duplicados permitidos (usar id interno do participante); linha ou goleiro; goleiros **opcionais**, até 4; goleiro isento
   do rateio por padrão; sem limite rígido de jogadores de linha; mudança linha↔goleiro permitida antes do fechamento (respeitando
   o limite); valor individual recalculado enquanto aberta (centavos, arredondamento consistente); fechar congela lista e valores,
-  bloqueia inscrições, pode reabrir; sorteio aleatório simples de 2 times, refazível; finalizar e resumo básico.
+  bloqueia inscrições, pode reabrir; sorteio aleatório simples de 2 times, refazível; resumo básico.
+  Detalhes decididos na implementação (13/11/2026):
+  - Só reservas **online** confirmadas têm partida (manual não tem organizador com conta); criação idempotente pelo organizador.
+  - Convidado só se inscreve pelo link; **só o organizador** edita a lista, isenções, pagamentos, Pix e times.
+  - Inscrição só com a partida aberta, reserva não cancelada e **antes do início** do jogo. Teto anti-abuso de 60 jogadores de linha.
+  - Rateio: centavos que sobram vão +1 para os primeiros na ordem de inscrição. Trocar de posição volta à isenção padrão da posição.
+  - "Pago" só para quem paga cota; isentar quem já declarou pagamento → 409. Fechar exige ao menos um pagante.
+  - **Pendente nº 7 resolvida**: reabrir mantém os pagamentos declarados e sinaliza `amountChangedAfterPayment` se a cota mudar.
+  - **Não existe "finalizar"** (retirado do escopo pelo dono em 13/11/2026): a partida é só `OPEN` ou `CLOSED`; pagamento e Pix
+    podem mudar depois do jogo; o resumo está sempre disponível (organizador e link).
+  - **Times A e B** (acréscimo do dono em 13/11/2026): montagem manual livre (A, B ou sem time) e sorteio (substitui a divisão
+    atual), com a partida aberta ou fechada; reabrir mantém os times; quem entra depois fica sem time. Cada time tem nome
+    (padrão "Time A"/"Time B") e cor de camiseta opcional de uma **paleta fixa** (`ShirtColor`); os dois times não podem ter a
+    mesma cor (409 + CHECK no banco).
 - **Pix**: só exibe a chave (do estabelecimento ou organizador); pagamento fora da plataforma; "pago" é declaração manual, não
   confirmação bancária. Sem Pix automático, gateway, cartão ou integração bancária.
 - **Infra**: Docker/Compose, PostgreSQL 17, Flyway dono do schema, `ddl-auto=validate`, OpenAPI/Swagger previsto. Sem config de
@@ -170,15 +224,15 @@ monólito modular, Angular separado consumindo esta API REST.
 ### Pendente (propor recomendação e aguardar; NÃO presumir)
 1. Antecedência mínima/máxima para reservar e prazo de cancelamento. 2. Matriz final de estados/transições por perfil.
 3. Reconfirmação pré-jogo e notificações/e-mail. 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
-gratuito, planos, preços, cobrança, suspensão). 6. Sessão, revogação e refresh tokens. 7. Fechar/reabrir organização com
-pagamentos já marcados.
+gratuito, planos, preços, cobrança, suspensão). 6. Sessão, revogação e refresh tokens. ~~7. Fechar/reabrir organização com
+pagamentos já marcados~~ (resolvida em 13/11/2026; ver "Decidido → Partida").
 
 ### Fora do escopo do MVP
 Apps nativos; pagamentos integrados/Pix automático/cartão; cobrança de assinatura; WhatsApp Business API; chat; marketplace;
 campeonatos; rankings/estatísticas; IA de balanceamento; white-label; fidelidade/avaliações; recorrência avançada; **exportação
 PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupamento de reservas.
 
-### Matriz de estado (evidência: leitura de código em 30/10/2026; fatias 1–5 de reservas executadas e passando em 30/10/2026; reverifique antes de planejar)
+### Matriz de estado (evidência: leitura de código em 30/10/2026 e 13/11/2026; reverifique antes de planejar)
 | Item | Status | Evidência |
 |---|---|---|
 | Estabelecimento, campo, slot semanal com preço | implementado (campos de Pix/logo/funcionamento não verificados) | `establishment/`, `sportfield/`, `schedule/` + `*IntegrationTests` |
@@ -195,7 +249,11 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Solicitação de cancelamento pelo organizador (`CANCELLATION_REQUESTED`) | **implementado e testado** (30/10/2026): V12; `POST /me/reservations/{id}/cancellation-request` (só `CONFIRMED`, só antes do início — único ponto do prazo: `ReservationService.ensureCancellationCanBeRequested`); continua ocupando o horário; admin aprova com o `/cancel` existente ou recusa com `POST .../reservations/{id}/refuse-cancellation` (volta a `CONFIRMED`) | `Reservation.requestCancellation/refuseCancellationRequest`, `MyReservationIntegrationTests` |
 | "Minhas reservas" (`GET /me/reservations`, `GET /me/reservations/{id}`) | **implementado e testado**: só as do usuário do token; de outro → 404; sem paginação ainda | `MeReservationController`, `MyReservationIntegrationTests` |
 | Spring Security/JWT, papéis, vínculo admin↔estabelecimento, isolamento | **implementado e testado** (30/10/2026): V11 (`users.role`, `establishment_admins`), login, 401/403/404 conforme a seção Segurança, `GET /me/establishments` | `SecurityConfig`, `EstablishmentAccessAuthorization`, `AuthenticationIntegrationTests`, `EstablishmentAuthorizationIntegrationTests` |
-| Partida: página, participantes, rateio, Pix, times, resumo | pendente | sem pacote |
+| Partida: página por reserva + link público (token) | **implementado e testado** (13/11/2026, fatia 1): V14; criação idempotente sob lock do slot; `GET /matches/{token}` | `MatchService.createMatch`, `MatchIntegrationTests` |
+| Partida: inscrição pelo link, linha/goleiro, edição pelo organizador | **implementado e testado** (fatia 2): V15; até 4 goleiros sob lock da partida; corridas testadas | `MatchService.joinMatch`, `MatchParticipantIntegrationTests` |
+| Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
+| Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
+| Partida em ocorrência de recorrência | pendente (dívida) | ocorrência não gera `Reservation` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

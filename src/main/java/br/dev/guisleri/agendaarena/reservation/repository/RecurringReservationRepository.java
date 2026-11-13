@@ -38,6 +38,21 @@ public interface RecurringReservationRepository extends JpaRepository<RecurringR
     })
     Optional<RecurringReservation> findByIdAndOrganizerId(Long id, Long organizerId);
 
+    /**
+     * Ids necessários para travar o horário da série antes de carregá-la (sem carregar a entidade).
+     */
+    @Query("""
+        SELECT new br.dev.guisleri.agendaarena.reservation.repository.ReservationSlotKey(
+            r.scheduleSlot.id, r.scheduleSlot.sportField.id
+        )
+        FROM RecurringReservation r
+        WHERE r.id = :recurringReservationId AND r.organizer.id = :organizerId
+        """)
+    Optional<ReservationSlotKey> findSlotKeyByIdAndOrganizerId(
+            @Param("recurringReservationId") Long recurringReservationId,
+            @Param("organizerId") Long organizerId
+    );
+
     @Query("SELECT COUNT(r) > 0 FROM RecurringReservation r " +
             "WHERE r.scheduleSlot.id = :scheduleSlotId " +
             "AND r.startDate <= COALESCE(:newEndDate, r.startDate) " +

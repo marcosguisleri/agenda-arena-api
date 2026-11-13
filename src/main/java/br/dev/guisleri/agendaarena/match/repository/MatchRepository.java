@@ -19,6 +19,7 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
      */
     @EntityGraph(attributePaths = {
             "reservation",
+            "recurringReservation",
             "scheduleSlot",
             "scheduleSlot.sportField",
             "scheduleSlot.sportField.establishment"
@@ -27,6 +28,7 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
 
     @EntityGraph(attributePaths = {
             "reservation",
+            "recurringReservation",
             "scheduleSlot",
             "scheduleSlot.sportField",
             "scheduleSlot.sportField.establishment"
@@ -38,11 +40,28 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
 
     @EntityGraph(attributePaths = {
             "reservation",
+            "recurringReservation",
             "scheduleSlot",
             "scheduleSlot.sportField",
             "scheduleSlot.sportField.establishment"
     })
     Optional<Match> findByIdAndOrganizerId(Long id, Long organizerId);
+
+    /**
+     * Partida de uma ocorrência de série do organizador (de outro: vazio, vira 404).
+     */
+    @EntityGraph(attributePaths = {
+            "reservation",
+            "recurringReservation",
+            "scheduleSlot",
+            "scheduleSlot.sportField",
+            "scheduleSlot.sportField.establishment"
+    })
+    Optional<Match> findByRecurringReservationIdAndOccurrenceDateAndOrganizerId(
+            Long recurringReservationId,
+            LocalDate occurrenceDate,
+            Long organizerId
+    );
 
     /**
      * Lock pessimista da partida do organizador: serializa inscrições e alterações da lista,

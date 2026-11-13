@@ -21,11 +21,16 @@ import java.util.List;
  *
  * @param reservationId     reserva de origem; nulo quando a origem é uma ocorrência de recorrência
  * @param reservationStatus estado da reserva de origem; nulo quando a origem é uma ocorrência
- * @param cancelled         o horário de origem deixou de existir (reserva cancelada)
+ * @param recurringReservationId série de origem; nulo quando a origem é uma reserva avulsa
+ * @param occurrenceDate         data da ocorrência de origem; nula quando a origem é uma reserva
+ * @param cancelled         o horário de origem deixou de existir (reserva cancelada ou
+ *                          ocorrência liberada)
  */
 public record MatchResponseDTO(
         Long id,
         Long reservationId,
+        Long recurringReservationId,
+        LocalDate occurrenceDate,
         String publicToken,
         MatchStatus status,
         ReservationStatus reservationStatus,
@@ -55,6 +60,10 @@ public record MatchResponseDTO(
         return new MatchResponseDTO(
                 match.getId(),
                 reservation != null ? reservation.getId() : null,
+                match.getRecurringReservation() != null
+                        ? match.getRecurringReservation().getId()
+                        : null,
+                match.getOccurrenceDate(),
                 match.getPublicToken(),
                 match.getStatus(),
                 reservation != null ? reservation.getStatus() : null,

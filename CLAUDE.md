@@ -62,9 +62,9 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
    O modelo atual (um slot por reserva) está correto: não é bug nem funcionalidade faltante.
 
 7. **Partida (lock da partida)**: criar a partida trava o **slot** da reserva (`ReservationService.findOrganizerReservationForUpdate`).
-   Toda alteração da lista/rateio/times trava a **linha de `matches`** (`MatchRepository.findByIdForUpdate` /
-   `findByPublicTokenForUpdate`) **antes** de validar (estado aberto, limite de 4 goleiros, cotas). Para o organizador, primeiro
-   busca o id sem lock e depois trava só `matches` (não estender o `FOR UPDATE` à reserva por join). O limite de goleiros não tem
+   Toda alteração da lista/rateio/times trava a **linha de `matches`** (`MatchRepository.findByIdAndOrganizerIdForUpdate` /
+   `findByPublicTokenForUpdate`) **antes** de validar (estado aberto, limite de 4 goleiros, cotas). Dono, horário, data e preço
+   ficam copiados na partida (V18), então o lock do organizador não faz join com a origem. O limite de goleiros não tem
    constraint: o lock é a barreira. A inscrição pública não trava o slot (corrida aceita: cancelamento simultâneo pode deixar
    uma inscrição a mais; a página mostra a reserva cancelada).
 
@@ -92,7 +92,8 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
   `POST /establishments/{id}/admins`), `PLATFORM_ADMIN` (criado na subida a partir de `PLATFORM_ADMIN_EMAIL/PASSWORD`).
 - **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, cadastro, a leitura do
   catálogo (GET de estabelecimentos, quadras, horários, disponibilidade) e o **link da partida** (`GET /matches/{publicToken}`,
-  `GET /matches/{publicToken}/summary`, `POST /matches/{publicToken}/participants`). O token tem 256 bits (`MatchTokenGenerator`);
+  `GET /matches/{publicToken}/summary`, `POST /matches/{publicToken}/participants`). O organizador cria/consulta a partida pela
+  origem (`/me/reservations/{id}/match`) e gerencia por id (`/me/matches/{matchId}/...`); de outro organizador → 404. O token tem 256 bits (`MatchTokenGenerator`);
   token inválido → 404 sem repetir o token; a visão pública não expõe ids internos nem dados do organizador. Tudo sob `/establishments/{establishmentId}/**` é
   gestão: só admin vinculado àquele estabelecimento (ou PLATFORM_ADMIN). Estabelecimento de outro → **404** (não revela que
   existe); organizador em rota de gestão → 403; anônimo → 401. Criar estabelecimento, mudar status e criar admins: só PLATFORM_ADMIN.
@@ -146,17 +147,32 @@ cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–
 CORS e um commit "wip: backup antes de formatar"), que **ainda não foi mergeada no `main`**. Mergear a base antes de abrir o PR
 da `feat/match`, senão o PR leva tudo junto.
 
-**Próximo (sugestão, aguarda decisão do dono)**: revisar a `feat/match` (`/code-review`, `backend-reviewer`) e organizar os PRs; depois,
-**partida para ocorrências de recorrência** (hoje uma ocorrência não gera linha em `reservations`, então não tem partida; é o caso
-do jogo fixo semanal). Propor desenho e esperar aprovação, como nas demais mudanças estruturais.
+**Em andamento (13/11/2026): partida para ocorrências de recorrência**, branch `feat/recurring-match` (ainda sem push/PR). Desenho
+aprovado pelo dono, com todas as recomendações aceitas:
+- Não criar `Reservation` por ocorrência (duplicaria a ocupação). A partida tem **duas origens**: `reservation_id` **ou**
+  `recurring_reservation_id + occurrence_date` (`chk_matches_single_source`), e guarda cópia de dono, slot, data, horário e preço.
+- Preço da ocorrência: preço do slot **copiado e congelado** na criação da partida.
+- Gestão pelo organizador por id (`/me/matches/{matchId}/...`); criação/consulta pela origem.
+- Série sem organizador vinculado não tem partida; o admin ganha um `PATCH` para vincular organizador a uma série (usa o
+  `RecurringReservation.linkOrganizer`, hoje sem uso), que entra em `managementEndpoints()`.
+- Qualquer ocorrência futura e ativa pode ganhar partida; a listagem mostra 8 semanas. Criação sob demanda (sem automação semanal).
+- Ocorrência "cancelada" = data liberada (`recurring_reservations_releases`); entra em `MatchService.isSourceCancelled`.
+- Fatias: **1** cópia dos dados na partida (V18) — feita (`refactor(match): copy organizer, slot, ...`); **2** contrato da API
+  (gestão em `/me/matches/{id}`, `reservationCancelled` → `cancelled`, `id` na resposta) — feita; **3** recorrências em `/me`
+  (`GET /me/recurring-reservations`, `GET .../{id}/occurrences?weeks=8`) + `PATCH` do admin para vincular organizador; **4**
+  `POST /me/recurring-reservations/{id}/occurrences/{date}/match` (lock do slot, idempotente, corridas: criação dupla e
+  liberação × criação). Ao fim: atualizar este arquivo, revisar (`/code-review`) e abrir PR para `main`.
+- Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
+  para alguns grupos.
 
-Dívidas conhecidas: partida em ocorrência de recorrência (acima); sem limite de requisições nem regeneração do token no link público
+Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
 da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
 paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
 refresh token/revogação (decisão pendente nº 6).
 
 Armadilhas já vistas neste projeto: `target/` velho causa erro estranho (use `./mvnw clean test`); **não compile pelo IntelliJ
-enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`);
+enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`,
+`RandomGenerator`; com o IntelliJ aberto, rode a suíte numa cópia do projeto sem `target/`, `.git` e `.env`);
 coluna `status` é `VARCHAR(30)` (V13); o decoder JWT usa o relógio do sistema, então testes de segurança não podem usar `Clock`
 fixo; testes carregam o `.env` (o admin da plataforma também é criado no banco do container, sem efeito no banco real); clone
 novo **não tem `.env`** (criar a partir do `.env.example`; a API não sobe sem ele); a porta 5432 pode estar ocupada por outro

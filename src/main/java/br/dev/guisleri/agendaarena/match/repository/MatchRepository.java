@@ -34,28 +34,25 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
             Long organizerId
     );
 
-    /**
-     * Só o id, sem lock: permite travar depois apenas a linha de {@code matches}. O dono é o
-     * organizador copiado na partida, sem join com a origem.
-     */
-    @Query("""
-            select m.id
-            from Match m
-            where m.reservation.id = :reservationId
-              and m.organizer.id = :organizerId
-            """)
-    Optional<Long> findIdByReservationIdAndOrganizerId(
-            @Param("reservationId") Long reservationId,
-            @Param("organizerId") Long organizerId
-    );
+    @EntityGraph(attributePaths = {
+            "reservation",
+            "scheduleSlot",
+            "scheduleSlot.sportField",
+            "scheduleSlot.sportField.establishment"
+    })
+    Optional<Match> findByIdAndOrganizerId(Long id, Long organizerId);
 
     /**
-     * Lock pessimista da partida: serializa inscrições e alterações da lista (limite de goleiros,
-     * estado aberto) e, nas próximas fatias, o fechamento.
+     * Lock pessimista da partida do organizador: serializa inscrições e alterações da lista,
+     * rateio e times. O dono está na própria linha ({@code organizer_id}), então o lock não se
+     * estende a outra tabela.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select m from Match m where m.id = :matchId")
-    Optional<Match> findByIdForUpdate(@Param("matchId") Long matchId);
+    @Query("select m from Match m where m.id = :matchId and m.organizer.id = :organizerId")
+    Optional<Match> findByIdAndOrganizerIdForUpdate(
+            @Param("matchId") Long matchId,
+            @Param("organizerId") Long organizerId
+    );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from Match m where m.publicToken = :publicToken")

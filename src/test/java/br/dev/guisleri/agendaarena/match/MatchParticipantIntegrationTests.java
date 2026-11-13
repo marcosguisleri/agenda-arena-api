@@ -115,6 +115,7 @@ class MatchParticipantIntegrationTests {
     private User organizer;
     private User otherOrganizer;
     private long reservationId;
+    private long matchId;
     private String token;
 
     @DynamicPropertySource
@@ -153,6 +154,8 @@ class MatchParticipantIntegrationTests {
 
         reservationId = reserve(organizer, baseDate);
         token = createMatch(organizer, reservationId);
+        matchId = jdbcTemplate.queryForObject(
+                "SELECT id FROM matches WHERE public_token = ?", Long.class, token);
     }
 
     @AfterEach
@@ -493,7 +496,7 @@ class MatchParticipantIntegrationTests {
                     inTransaction(() -> {
                         matchService.changeParticipantPosition(
                                 organizer.getId(),
-                                reservationId,
+                                matchId,
                                 fieldPlayerId,
                                 PlayerPosition.GOALKEEPER
                         );
@@ -579,7 +582,7 @@ class MatchParticipantIntegrationTests {
     }
 
     private String matchPath() {
-        return "/me/reservations/" + reservationId + "/match";
+        return "/me/matches/" + matchId;
     }
 
     private String participantPath(long participantId) {

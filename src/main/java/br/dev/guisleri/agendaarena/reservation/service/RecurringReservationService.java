@@ -10,11 +10,15 @@ import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.reservation.repository.RecurringReservationReleaseRepository;
 import br.dev.guisleri.agendaarena.reservation.repository.RecurringReservationRepository;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
+import br.dev.guisleri.agendaarena.reservation.repository.ReservationSlotKey;
 import br.dev.guisleri.agendaarena.reservation.repository.SlotBlockRepository;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
+import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotNotFoundException;
+import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.service.UserService;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -35,6 +39,7 @@ public class RecurringReservationService {
     private final RecurringReservationReleaseRepository recurringReservationReleaseRepository;
     private final SlotBlockRepository slotBlockRepository;
     private final MatchRepository matchRepository;
+    private final ScheduleSlotRepository scheduleSlotRepository;
     private final Clock clock;
 
     public RecurringReservationService(
@@ -45,6 +50,7 @@ public class RecurringReservationService {
             RecurringReservationReleaseRepository recurringReservationReleaseRepository,
             SlotBlockRepository slotBlockRepository,
             MatchRepository matchRepository,
+            ScheduleSlotRepository scheduleSlotRepository,
             Clock clock
     ) {
         this.reservationRepository = reservationRepository;
@@ -54,6 +60,7 @@ public class RecurringReservationService {
         this.recurringReservationReleaseRepository = recurringReservationReleaseRepository;
         this.slotBlockRepository = slotBlockRepository;
         this.matchRepository = matchRepository;
+        this.scheduleSlotRepository = scheduleSlotRepository;
         this.clock = clock;
     }
 
@@ -235,6 +242,66 @@ public class RecurringReservationService {
     }
 
     /**
+     * Série do organizador lida DEPOIS de travar o horário dela, para que o vínculo e o estado lidos
+     * sejam os confirmados por quem tinha o lock (trocar o organizador também trava o slot). Série
+     * de outro organizador: 404.
+     * <p>
+     * Exige transação aberta pelo chamador ({@code MANDATORY}): fora dela o lock seria liberado no
+     * retorno e a série devolvida já não estaria protegida.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public RecurringReservation findOrganizerRecurringReservationForUpdate(
+            Long organizerId,
+            Long recurringReservationId
+    ) {
+        ReservationSlotKey slotKey = recurringReservationRepository
+                .findSlotKeyByIdAndOrganizerId(recurringReservationId, organizerId)
+                .orElseThrow(() -> new RecurringReservationNotFoundException(
+                        "Recurring reservation with id " + recurringReservationId + " not found"
+                ));
+
+        scheduleSlotRepository
+                .findByIdAndSportFieldIdForUpdate(
+                        slotKey.scheduleSlotId(),
+                        slotKey.sportFieldId()
+                )
+                .orElseThrow(() -> new ScheduleSlotNotFoundException(
+                        "Schedule slot with id " + slotKey.scheduleSlotId() + " not found"
+                ));
+
+        return findOrganizerRecurringReservation(organizerId, recurringReservationId);
+    }
+
+    /**
+     * A data precisa ser uma ocorrência da série: dia da semana do slot e dentro do período.
+     * (Não olha passado nem liberação: isso depende do uso.)
+     */
+    public void ensureDateIsOccurrenceOfSeries(
+            RecurringReservation recurringReservation,
+            LocalDate occurrenceDate
+    ) {
+        if (!occurrenceDate.getDayOfWeek()
+                .equals(recurringReservation.getScheduleSlot().getDayOfWeek())) {
+            throw new RecurringReservationNotAllowedException(
+                    "Occurrence date does not match schedule slot day of week"
+            );
+        }
+
+        boolean beforeStart =
+                occurrenceDate.isBefore(recurringReservation.getStartDate());
+
+        boolean afterEnd =
+                recurringReservation.getEndDate() != null
+                        && occurrenceDate.isAfter(recurringReservation.getEndDate());
+
+        if (beforeStart || afterEnd) {
+            throw new RecurringReservationNotAllowedException(
+                    "Occurrence date is outside the recurring reservation period"
+            );
+        }
+    }
+
+    /**
      * O administrador vincula (ou troca) o organizador de uma série. Mesmo protocolo das demais
      * operações: lock do slot primeiro, validações depois. Trocar o organizador de uma série que
      * já tem partida é conflito (409): a partida guarda o dono copiado e ficaria divergente.
@@ -303,24 +370,7 @@ public class RecurringReservationService {
             );
         }
 
-        if (!occurrenceDate.getDayOfWeek().equals(scheduleSlot.getDayOfWeek())) {
-            throw new RecurringReservationNotAllowedException(
-                    "Occurrence date does not match schedule slot day of week"
-            );
-        }
-
-        boolean beforeStart =
-                occurrenceDate.isBefore(recurringReservation.getStartDate());
-
-        boolean afterEnd =
-                recurringReservation.getEndDate() != null
-                        && occurrenceDate.isAfter(recurringReservation.getEndDate());
-
-        if (beforeStart || afterEnd) {
-            throw new RecurringReservationNotAllowedException(
-                    "Occurrence date is outside the recurring reservation period"
-            );
-        }
+        ensureDateIsOccurrenceOfSeries(recurringReservation, occurrenceDate);
 
         if (occurrenceDate.equals(currentDate)
                 && !scheduleSlot.getStartTime().isAfter(now.toLocalTime())) {

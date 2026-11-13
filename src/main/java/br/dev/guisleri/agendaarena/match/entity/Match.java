@@ -133,6 +133,31 @@ public class Match {
         return match;
     }
 
+    /**
+     * Partida de uma ocorrência de recorrência (série + data): copia dono, horário e data, e
+     * congela o preço do slot no momento da criação (a ocorrência não tem preço próprio).
+     */
+    public static Match forOccurrence(
+            RecurringReservation recurringReservation,
+            LocalDate occurrenceDate,
+            String publicToken,
+            Instant createdAt
+    ) {
+        Match match = open(publicToken, createdAt);
+        ScheduleSlot slot = recurringReservation.getScheduleSlot();
+
+        match.recurringReservation = recurringReservation;
+        match.occurrenceDate = occurrenceDate;
+        match.organizer = recurringReservation.getOrganizer();
+        match.scheduleSlot = slot;
+        match.date = occurrenceDate;
+        match.startTime = slot.getStartTime();
+        match.endTime = slot.getEndTime();
+        match.price = slot.getPrice();
+
+        return match;
+    }
+
     private static Match open(String publicToken, Instant createdAt) {
         Match match = new Match();
 

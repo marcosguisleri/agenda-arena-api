@@ -12,7 +12,8 @@ import java.util.Map;
  *
  * @param shares          cota de cada participante pelo id (zero para isentos): congelada se a
  *                        partida está fechada, calculada na hora se está aberta
- * @param sourceCancelled o horário de origem foi cancelado (reserva cancelada)
+ * @param sourceCancelled o horário de origem deixou de existir (reserva cancelada ou ocorrência
+ *                        de recorrência liberada)
  */
 public record MatchDetails(
         Match match,

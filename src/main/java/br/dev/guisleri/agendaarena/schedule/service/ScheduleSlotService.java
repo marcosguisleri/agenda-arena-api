@@ -264,4 +264,33 @@ public class ScheduleSlotService {
 
     }
 
+    /**
+     * Confirma que o horário (já carregado e travado) ainda pode receber novas operações: o
+     * estabelecimento, a quadra e o próprio slot precisam estar ativos. Mesmas regras de
+     * {@link #findBookableScheduleSlotForUpdate}, sem buscar nem travar de novo.
+     * Exige transação aberta pelo chamador (lê associações lazy).
+     */
+    public void ensureBookable(ScheduleSlot scheduleSlot) {
+        SportField sportField = scheduleSlot.getSportField();
+
+        if (!sportField.getEstablishment().isActive()) {
+            throw new ScheduleSlotNotBookableException(
+                    "Establishment with id " + sportField.getEstablishment().getId()
+                            + " is not active"
+            );
+        }
+
+        if (!sportField.isActive()) {
+            throw new ScheduleSlotNotBookableException(
+                    "Sport field with id " + sportField.getId() + " is not active"
+            );
+        }
+
+        if (!scheduleSlot.isActive()) {
+            throw new ScheduleSlotNotBookableException(
+                    "Schedule slot with id " + scheduleSlot.getId() + " is not active"
+            );
+        }
+    }
+
 }

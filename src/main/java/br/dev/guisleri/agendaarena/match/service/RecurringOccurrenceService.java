@@ -24,7 +24,8 @@ import java.util.Set;
 
 /**
  * Próximas datas de uma série recorrente do organizador, com o estado de cada uma (liberada,
- * com partida). Leitura sem lock: a criação da partida (que trava o slot) fica em outra fatia.
+ * com partida). Leitura sem lock; a criação da partida da ocorrência (que trava o slot) está em
+ * {@link MatchService#createOccurrenceMatch}.
  */
 @Service
 public class RecurringOccurrenceService {

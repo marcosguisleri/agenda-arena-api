@@ -78,7 +78,8 @@ public class MatchService {
      * <p>
      * Trava o horário da reserva antes de ler o estado dela e de procurar a partida: assim duas
      * criações simultâneas se serializam (a segunda encontra a partida da primeira) e um
-     * cancelamento do administrador não passa no meio da validação.
+     * cancelamento do administrador não passa no meio da validação. Só cria antes do início do
+     * jogo: depois dele ninguém mais poderia se inscrever.
      */
     @Transactional
     public MatchCreationResult createMatch(Long organizerId, Long reservationId) {
@@ -99,6 +100,10 @@ public class MatchService {
             throw new ReservationNotEligibleForMatchException(
                     "Only confirmed reservations can have a match"
             );
+        }
+
+        if (hasStarted(reservation)) {
+            throw new ReservationNotEligibleForMatchException("Reservation has already started");
         }
 
         matchRepository.saveAndFlush(
@@ -168,7 +173,7 @@ public class MatchService {
             Long participantId,
             PlayerPosition position
     ) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
 
         ensureOpen(match);
 
@@ -190,11 +195,18 @@ public class MatchService {
 
     @Transactional
     public void removeParticipant(Long organizerId, Long reservationId, Long participantId) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
 
         ensureOpen(match);
 
-        matchParticipantRepository.delete(findParticipant(match, participantId));
+        MatchParticipant participant = findParticipant(match, participantId);
+
+        // Remover quem já declarou pagamento apagaria a declaração em silêncio (como isentar).
+        if (participant.isPaid()) {
+            throw new ParticipantPaymentConflictException("Participant has a declared payment");
+        }
+
+        matchParticipantRepository.delete(participant);
     }
 
     // ---------- Rateio e pagamentos ----------
@@ -209,7 +221,7 @@ public class MatchService {
             Long participantId,
             boolean paysShare
     ) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
 
         ensureOpen(match);
 
@@ -234,24 +246,25 @@ public class MatchService {
             Long participantId,
             boolean paid
     ) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
         MatchParticipant participant = findParticipant(match, participantId);
 
-        if (paid) {
-            if (!participant.isPaysShare()) {
-                throw new ParticipantPaymentConflictException(
-                        "Participant is exempt from the split"
-                );
-            }
+        if (paid && !participant.isPaysShare()) {
+            throw new ParticipantPaymentConflictException("Participant is exempt from the split");
+        }
 
-            participant.markPaid(details(match).shareOf(participant));
+        // A lista já carregada serve para a cota e para a resposta (pagar não muda cotas).
+        MatchDetails current = details(match);
+
+        if (paid) {
+            participant.markPaid(current.shareOf(participant));
         } else {
             participant.unmarkPaid();
         }
 
         matchParticipantRepository.saveAndFlush(participant);
 
-        return findMyMatch(organizerId, reservationId);
+        return readyForView(current, organizerId, reservationId);
     }
 
     /**
@@ -259,7 +272,7 @@ public class MatchService {
      */
     @Transactional
     public MatchDetails changePixKey(Long organizerId, Long reservationId, String pixKey) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
 
         match.changePixKey(pixKey == null || pixKey.isBlank() ? null : pixKey.trim());
         matchRepository.saveAndFlush(match);
@@ -275,11 +288,9 @@ public class MatchService {
      */
     @Transactional
     public MatchDetails closeMatch(Long organizerId, Long reservationId) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
 
-        if (match.getStatus() != MatchStatus.OPEN) {
-            throw new MatchInvalidStateException("Match is not open");
-        }
+        ensureOpen(match);
 
         MatchDetails current = details(match);
 
@@ -296,7 +307,8 @@ public class MatchService {
         matchParticipantRepository.saveAll(current.participants());
         matchRepository.saveAndFlush(match);
 
-        return findMyMatch(organizerId, reservationId);
+        // Cotas congeladas = cotas calculadas acima: a mesma lista serve para a resposta.
+        return readyForView(current, organizerId, reservationId);
     }
 
     /**
@@ -306,7 +318,7 @@ public class MatchService {
      */
     @Transactional
     public MatchDetails reopenMatch(Long organizerId, Long reservationId) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
 
         if (match.getStatus() != MatchStatus.CLOSED) {
             throw new MatchInvalidStateException("Match is not closed");
@@ -332,7 +344,7 @@ public class MatchService {
      */
     @Transactional
     public MatchDetails drawTeams(Long organizerId, Long reservationId) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
 
         List<MatchParticipant> participants =
                 matchParticipantRepository.findAllByMatchIdOrderByCreatedAtAscIdAsc(match.getId());
@@ -375,7 +387,7 @@ public class MatchService {
             Long participantId,
             MatchTeam team
     ) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
         MatchParticipant participant = findParticipant(match, participantId);
 
         participant.assignTeam(team);
@@ -399,7 +411,7 @@ public class MatchService {
             String name,
             ShirtColor shirtColor
     ) {
-        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, reservationId);
         MatchTeam otherTeam = team == MatchTeam.A ? MatchTeam.B : MatchTeam.A;
 
         if (shirtColor != null && shirtColor == match.getTeamShirtColor(otherTeam)) {
@@ -412,16 +424,63 @@ public class MatchService {
         return findMyMatch(organizerId, reservationId);
     }
 
+    /**
+     * Nome e cor dos dois times de uma vez (permite trocar as cores entre eles). Valida o
+     * resultado final, não o estado intermediário.
+     */
+    @Transactional
+    public MatchDetails changeTeamsSettings(
+            Long organizerId,
+            Long reservationId,
+            String teamAName,
+            ShirtColor teamAShirtColor,
+            String teamBName,
+            ShirtColor teamBShirtColor
+    ) {
+        Match match = lockMyActiveMatch(organizerId, reservationId);
+
+        if (teamAShirtColor != null && teamAShirtColor == teamBShirtColor) {
+            throw new TeamShirtColorConflictException("Teams must have different shirt colors");
+        }
+
+        match.changeTeam(MatchTeam.A, normalizeName(teamAName), teamAShirtColor);
+        match.changeTeam(MatchTeam.B, normalizeName(teamBName), teamBShirtColor);
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
     // ---------- Apoio ----------
 
-    private Match findMyMatchForUpdate(Long organizerId, Long reservationId) {
+    /**
+     * Garante o grafo da reserva (campo, estabelecimento) carregado para o DTO fora da transação,
+     * numa consulta só, reaproveitando a lista de participantes já carregada.
+     */
+    private MatchDetails readyForView(MatchDetails details, Long organizerId, Long reservationId) {
+        matchRepository.findByReservationIdAndReservationOrganizerId(reservationId, organizerId);
+
+        return details;
+    }
+
+    /**
+     * Trava a partida do organizador (lock só na linha de {@code matches}) e recusa alterações se a
+     * reserva foi cancelada: não faz sentido fechar, cobrar ou montar times de um horário que não
+     * existe mais. A leitura continua liberada.
+     */
+    private Match lockMyActiveMatch(Long organizerId, Long reservationId) {
         Long matchId = matchRepository
                 .findIdByReservationIdAndOrganizerId(reservationId, organizerId)
                 .orElseThrow(() -> matchNotFound(reservationId));
 
-        return matchRepository
+        Match match = matchRepository
                 .findByIdForUpdate(matchId)
                 .orElseThrow(() -> matchNotFound(reservationId));
+
+        if (match.getReservation().getStatus() == ReservationStatus.CANCELLED) {
+            throw new MatchInvalidStateException("Reservation was cancelled");
+        }
+
+        return match;
     }
 
     private MatchParticipant findParticipant(Match match, Long participantId) {
@@ -471,7 +530,7 @@ public class MatchService {
 
     private static void ensureOpen(Match match) {
         if (match.getStatus() != MatchStatus.OPEN) {
-            throw new MatchRegistrationNotAllowedException("Match is not open");
+            throw new MatchInvalidStateException("Match is not open");
         }
     }
 
@@ -495,14 +554,18 @@ public class MatchService {
             throw new MatchRegistrationNotAllowedException("Reservation was cancelled");
         }
 
+        if (hasStarted(reservation)) {
+            throw new MatchRegistrationNotAllowedException("Match has already started");
+        }
+    }
+
+    private boolean hasStarted(Reservation reservation) {
         LocalDateTime startsAt = LocalDateTime.of(
                 reservation.getReservationDate(),
                 reservation.getStartTime()
         );
 
-        if (!startsAt.isAfter(LocalDateTime.now(clock))) {
-            throw new MatchRegistrationNotAllowedException("Match has already started");
-        }
+        return !startsAt.isAfter(LocalDateTime.now(clock));
     }
 
     /**

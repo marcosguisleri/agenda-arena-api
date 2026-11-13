@@ -229,6 +229,37 @@ class MatchIntegrationTests {
         }
 
         @Test
+        void shouldRejectReservationThatAlreadyStarted() throws Exception {
+            long reservationId = reserve(organizer, baseDate);
+            jdbcTemplate.update(
+                    "UPDATE reservations SET reservation_date = ? WHERE id = ?",
+                    LocalDate.now(clock).minusDays(1),
+                    reservationId
+            );
+
+            createMatch(organizer, reservationId)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Reservation has already started"));
+
+            assertThat(matchRepository.count()).isZero();
+        }
+
+        @Test
+        void shouldStillReturnExistingMatchAfterTheGameStarted() throws Exception {
+            long reservationId = reserve(organizer, baseDate);
+            String token = tokenOf(createMatch(organizer, reservationId)
+                    .andExpect(status().isCreated()));
+            jdbcTemplate.update(
+                    "UPDATE reservations SET reservation_date = ? WHERE id = ?",
+                    LocalDate.now(clock).minusDays(1),
+                    reservationId
+            );
+
+            assertThat(tokenOf(createMatch(organizer, reservationId)
+                    .andExpect(status().isOk()))).isEqualTo(token);
+        }
+
+        @Test
         void shouldHideReservationOfAnotherOrganizer() throws Exception {
             long reservationId = reserve(otherOrganizer, baseDate);
 

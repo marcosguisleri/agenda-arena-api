@@ -7,6 +7,7 @@ import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPositionRequestDTO
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantTeamRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangePixKeyRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeTeamSettingsRequestDTO;
+import br.dev.guisleri.agendaarena.match.dto.ChangeTeamsRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.MatchResponseDTO;
 import br.dev.guisleri.agendaarena.match.dto.MatchSummaryResponseDTO;
 import br.dev.guisleri.agendaarena.match.model.MatchTeam;
@@ -98,6 +99,27 @@ public class MeMatchController {
     ) {
         return ResponseEntity.ok(MatchResponseDTO.fromDetails(
                 matchService.drawTeams(AuthenticatedUsers.userId(authentication), reservationId)
+        ));
+    }
+
+    /**
+     * Nome e cor dos dois times numa chamada só (ex.: trocar as cores entre eles).
+     */
+    @PutMapping("/teams")
+    public ResponseEntity<MatchResponseDTO> changeTeamsSettings(
+            @PathVariable Long reservationId,
+            @Valid @RequestBody ChangeTeamsRequestDTO request,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(MatchResponseDTO.fromDetails(
+                matchService.changeTeamsSettings(
+                        AuthenticatedUsers.userId(authentication),
+                        reservationId,
+                        request.teamA().name(),
+                        request.teamA().shirtColor(),
+                        request.teamB().name(),
+                        request.teamB().shirtColor()
+                )
         ));
     }
 

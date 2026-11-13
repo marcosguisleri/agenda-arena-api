@@ -112,6 +112,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_PATTERNS).permitAll()
                         .requestMatchers(HttpMethod.GET, API_DOCS_PATTERNS).permitAll()
 
+                        // Página da partida pelo link compartilhado (token aleatório, sem conta)
+                        .requestMatchers(HttpMethod.GET, "/matches/{publicToken}").permitAll()
+
                         // Só a plataforma (dona do sistema)
                         .requestMatchers(HttpMethod.POST, "/establishments")
                         .hasRole(AuthenticatedUsers.PLATFORM_ADMIN)

@@ -231,6 +231,29 @@ public class ReservationService {
     }
 
     /**
+     * Reserva do organizador lida DEPOIS de travar o horário dela, para que o estado lido seja o
+     * confirmado por quem tinha o lock. Usada por fluxos de fora do pacote (Partida).
+     * Reserva de outro organizador: 404.
+     */
+    @Transactional
+    public Reservation findOrganizerReservationForUpdate(Long organizerId, Long reservationId) {
+        Long scheduleSlotId = reservationRepository
+                .findScheduleSlotIdByIdAndOrganizerId(reservationId, organizerId)
+                .orElseThrow(() -> reservationNotFound(reservationId));
+        Long sportFieldId = reservationRepository
+                .findSportFieldIdByIdAndOrganizerId(reservationId, organizerId)
+                .orElseThrow(() -> reservationNotFound(reservationId));
+
+        scheduleSlotRepository
+                .findByIdAndSportFieldIdForUpdate(scheduleSlotId, sportFieldId)
+                .orElseThrow(() -> new ScheduleSlotNotFoundException(
+                        "Schedule slot with id " + scheduleSlotId + " not found"
+                ));
+
+        return findOrganizerReservation(organizerId, reservationId);
+    }
+
+    /**
      * O organizador pede o cancelamento da própria reserva. A reserva continua ocupando o horário
      * até o estabelecimento decidir. Trava o horário antes de ler a reserva para serializar com
      * as ações do administrador.

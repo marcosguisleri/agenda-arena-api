@@ -17,32 +17,32 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
      */
     @EntityGraph(attributePaths = {
             "reservation",
-            "reservation.scheduleSlot",
-            "reservation.scheduleSlot.sportField",
-            "reservation.scheduleSlot.sportField.establishment"
+            "scheduleSlot",
+            "scheduleSlot.sportField",
+            "scheduleSlot.sportField.establishment"
     })
     Optional<Match> findByPublicToken(String publicToken);
 
     @EntityGraph(attributePaths = {
             "reservation",
-            "reservation.scheduleSlot",
-            "reservation.scheduleSlot.sportField",
-            "reservation.scheduleSlot.sportField.establishment"
+            "scheduleSlot",
+            "scheduleSlot.sportField",
+            "scheduleSlot.sportField.establishment"
     })
-    Optional<Match> findByReservationIdAndReservationOrganizerId(
+    Optional<Match> findByReservationIdAndOrganizerId(
             Long reservationId,
             Long organizerId
     );
 
     /**
-     * Só o id, sem lock: permite travar depois apenas a linha de {@code matches}, sem estender o
-     * lock à reserva pelo join.
+     * Só o id, sem lock: permite travar depois apenas a linha de {@code matches}. O dono é o
+     * organizador copiado na partida, sem join com a origem.
      */
     @Query("""
             select m.id
             from Match m
             where m.reservation.id = :reservationId
-              and m.reservation.organizer.id = :organizerId
+              and m.organizer.id = :organizerId
             """)
     Optional<Long> findIdByReservationIdAndOrganizerId(
             @Param("reservationId") Long reservationId,

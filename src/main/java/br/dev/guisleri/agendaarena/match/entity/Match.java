@@ -3,14 +3,24 @@ package br.dev.guisleri.agendaarena.match.entity;
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
 import br.dev.guisleri.agendaarena.match.model.MatchTeam;
 import br.dev.guisleri.agendaarena.match.model.ShirtColor;
+import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
+import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
+import br.dev.guisleri.agendaarena.user.entity.User;
 
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
 /**
- * Página da partida de UMA reserva. Não agrupa reservas consecutivas.
+ * Página da partida de UM horário: uma reserva avulsa ou uma ocorrência de recorrência (nunca as
+ * duas; {@code chk_matches_single_source}). Não agrupa reservas consecutivas.
+ * <p>
+ * Dono, horário, data e preço ficam copiados na partida na criação: as regras e as telas leem
+ * daqui, sem depender da origem.
  */
 @Entity
 @Table(name = "matches")
@@ -20,9 +30,45 @@ public class Match {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "reservation_id", nullable = false, unique = true)
+    /**
+     * Origem reserva avulsa; nula quando a origem é uma ocorrência de recorrência.
+     */
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reservation_id", unique = true)
     private Reservation reservation;
+
+    /**
+     * Origem ocorrência de recorrência (série + data); nulas quando a origem é uma reserva.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "recurring_reservation_id")
+    private RecurringReservation recurringReservation;
+
+    @Column(name = "occurrence_date")
+    private LocalDate occurrenceDate;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "organizer_id", nullable = false)
+    private User organizer;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "schedule_slot_id", nullable = false)
+    private ScheduleSlot scheduleSlot;
+
+    @Column(name = "match_date", nullable = false)
+    private LocalDate date;
+
+    @Column(name = "start_time", nullable = false)
+    private LocalTime startTime;
+
+    @Column(name = "end_time", nullable = false)
+    private LocalTime endTime;
+
+    /**
+     * Valor total rateado, copiado na criação (nunca alterado retroativamente).
+     */
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal price;
 
     @Column(name = "public_token", nullable = false, unique = true, length = 43)
     private String publicToken;
@@ -66,10 +112,30 @@ public class Match {
     protected Match() {
     }
 
-    public static Match open(Reservation reservation, String publicToken, Instant createdAt) {
-        Match match = new Match();
+    /**
+     * Partida de uma reserva avulsa: copia dono, horário, data e preço da reserva.
+     */
+    public static Match forReservation(
+            Reservation reservation,
+            String publicToken,
+            Instant createdAt
+    ) {
+        Match match = open(publicToken, createdAt);
 
         match.reservation = reservation;
+        match.organizer = reservation.getOrganizer();
+        match.scheduleSlot = reservation.getScheduleSlot();
+        match.date = reservation.getReservationDate();
+        match.startTime = reservation.getStartTime();
+        match.endTime = reservation.getEndTime();
+        match.price = reservation.getPrice();
+
+        return match;
+    }
+
+    private static Match open(String publicToken, Instant createdAt) {
+        Match match = new Match();
+
         match.publicToken = publicToken;
         match.status = MatchStatus.OPEN;
         match.createdAt = createdAt;
@@ -124,6 +190,38 @@ public class Match {
 
     public Reservation getReservation() {
         return reservation;
+    }
+
+    public RecurringReservation getRecurringReservation() {
+        return recurringReservation;
+    }
+
+    public LocalDate getOccurrenceDate() {
+        return occurrenceDate;
+    }
+
+    public User getOrganizer() {
+        return organizer;
+    }
+
+    public ScheduleSlot getScheduleSlot() {
+        return scheduleSlot;
+    }
+
+    public LocalDate getDate() {
+        return date;
+    }
+
+    public LocalTime getStartTime() {
+        return startTime;
+    }
+
+    public LocalTime getEndTime() {
+        return endTime;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
     }
 
     public String getPublicToken() {

@@ -25,7 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -87,7 +89,7 @@ public class MatchService {
                 reservationService.findOrganizerReservationForUpdate(organizerId, reservationId);
 
         Optional<Match> existing =
-                matchRepository.findByReservationIdAndReservationOrganizerId(
+                matchRepository.findByReservationIdAndOrganizerId(
                         reservationId,
                         organizerId
                 );
@@ -102,12 +104,12 @@ public class MatchService {
             );
         }
 
-        if (hasStarted(reservation)) {
+        if (hasStarted(reservation.getReservationDate(), reservation.getStartTime())) {
             throw new ReservationNotEligibleForMatchException("Reservation has already started");
         }
 
         matchRepository.saveAndFlush(
-                Match.open(reservation, matchTokenGenerator.newToken(), clock.instant())
+                Match.forReservation(reservation, matchTokenGenerator.newToken(), clock.instant())
         );
 
         // Relê com o grafo completo (campo e estabelecimento) para o DTO fora da transação.
@@ -121,7 +123,7 @@ public class MatchService {
     public MatchDetails findMyMatch(Long organizerId, Long reservationId) {
         return details(
                 matchRepository
-                        .findByReservationIdAndReservationOrganizerId(reservationId, organizerId)
+                        .findByReservationIdAndOrganizerId(reservationId, organizerId)
                         .orElseThrow(() -> matchNotFound(reservationId))
         );
     }
@@ -152,7 +154,7 @@ public class MatchService {
                 .orElseThrow(() -> new MatchNotFoundException("Match not found"));
 
         ensureOpen(match);
-        ensureReservationAcceptsPlayers(match.getReservation());
+        ensureMatchAcceptsPlayers(match);
         ensurePositionAvailable(match, position);
 
         matchParticipantRepository.saveAndFlush(
@@ -457,7 +459,7 @@ public class MatchService {
      * numa consulta só, reaproveitando a lista de participantes já carregada.
      */
     private MatchDetails readyForView(MatchDetails details, Long organizerId, Long reservationId) {
-        matchRepository.findByReservationIdAndReservationOrganizerId(reservationId, organizerId);
+        matchRepository.findByReservationIdAndOrganizerId(reservationId, organizerId);
 
         return details;
     }
@@ -476,7 +478,7 @@ public class MatchService {
                 .findByIdForUpdate(matchId)
                 .orElseThrow(() -> matchNotFound(reservationId));
 
-        if (match.getReservation().getStatus() == ReservationStatus.CANCELLED) {
+        if (isSourceCancelled(match)) {
             throw new MatchInvalidStateException("Reservation was cancelled");
         }
 
@@ -505,7 +507,7 @@ public class MatchService {
                     .filter(MatchParticipant::isPaysShare)
                     .toList();
             Iterator<BigDecimal> payerShares = MatchSplitCalculator
-                    .split(match.getReservation().getPrice(), payers.size())
+                    .split(match.getPrice(), payers.size())
                     .iterator();
 
             for (MatchParticipant participant : participants) {
@@ -525,7 +527,7 @@ public class MatchService {
             }
         }
 
-        return new MatchDetails(match, participants, shares);
+        return new MatchDetails(match, participants, shares, isSourceCancelled(match));
     }
 
     private static void ensureOpen(Match match) {
@@ -549,23 +551,28 @@ public class MatchService {
         }
     }
 
-    private void ensureReservationAcceptsPlayers(Reservation reservation) {
-        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+    private void ensureMatchAcceptsPlayers(Match match) {
+        if (isSourceCancelled(match)) {
             throw new MatchRegistrationNotAllowedException("Reservation was cancelled");
         }
 
-        if (hasStarted(reservation)) {
+        if (hasStarted(match.getDate(), match.getStartTime())) {
             throw new MatchRegistrationNotAllowedException("Match has already started");
         }
     }
 
-    private boolean hasStarted(Reservation reservation) {
-        LocalDateTime startsAt = LocalDateTime.of(
-                reservation.getReservationDate(),
-                reservation.getStartTime()
-        );
+    /**
+     * Único ponto que decide se o horário de origem deixou de existir. Origem reserva: reserva
+     * cancelada. (A origem ocorrência de recorrência entra aqui: data liberada.)
+     */
+    private boolean isSourceCancelled(Match match) {
+        Reservation reservation = match.getReservation();
 
-        return !startsAt.isAfter(LocalDateTime.now(clock));
+        return reservation != null && reservation.getStatus() == ReservationStatus.CANCELLED;
+    }
+
+    private boolean hasStarted(LocalDate date, LocalTime startTime) {
+        return !LocalDateTime.of(date, startTime).isAfter(LocalDateTime.now(clock));
     }
 
     /**

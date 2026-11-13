@@ -43,20 +43,20 @@ public record MatchResponseDTO(
     public static MatchResponseDTO fromDetails(MatchDetails details) {
         Match match = details.match();
         Reservation reservation = match.getReservation();
-        SportField sportField = reservation.getScheduleSlot().getSportField();
+        SportField sportField = match.getScheduleSlot().getSportField();
         List<MatchParticipant> participants = details.participants();
 
         return new MatchResponseDTO(
-                reservation.getId(),
+                reservation != null ? reservation.getId() : null,
                 match.getPublicToken(),
                 match.getStatus(),
-                reservation.getStatus(),
+                reservation != null ? reservation.getStatus() : null,
                 sportField.getEstablishment().getName(),
                 sportField.getName(),
-                reservation.getReservationDate(),
-                reservation.getStartTime(),
-                reservation.getEndTime(),
-                reservation.getPrice(),
+                match.getDate(),
+                match.getStartTime(),
+                match.getEndTime(),
+                match.getPrice(),
                 match.getPixKey(),
                 match.getCreatedAt(),
                 match.getClosedAt(),

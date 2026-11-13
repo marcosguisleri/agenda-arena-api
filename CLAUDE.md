@@ -138,17 +138,19 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Estado atual e próximo passo (atualizado em 13/11/2026)
 
-Concluído e com a suíte completa passando (**559 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
+Concluído e com a suíte completa passando (**562 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
 e manual, recorrência + liberação de ocorrência, bloqueios, cancelamento admin (com "manter bloqueado"), concluída/não compareceu,
 consulta por id e agenda do admin, autenticação JWT + papéis + isolamento por estabelecimento, "minhas reservas", pedido de
-cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–V17)**. Migrations até a **V17**.
+cancelamento do organizador, CORS, OpenAPI/Swagger, **Partida (4 fatias, V14–V17)** e **partida para ocorrências de recorrência
+(V18)**. Migrations até a **V18**.
 
-**Git**: a Partida está na branch `feat/match`, criada a partir de `feat/release-recurring-occurrence` (segurança, minhas reservas,
-CORS e um commit "wip: backup antes de formatar"), que **ainda não foi mergeada no `main`**. Mergear a base antes de abrir o PR
-da `feat/match`, senão o PR leva tudo junto.
+**Git**: tudo está mergeado no `main` (PRs #5 reservas/bloqueios, #6 partida, #7 partida para ocorrências). O histórico foi reescrito
+em 13/11/2026 para remover trailers de atribuição do Claude (hashes do `main` mudaram; clones antigos devem fazer `git fetch` e
+`git reset --hard origin/main`). Branches de feature: `feat/<assunto>` a partir do `main`; o repositório principal de trabalho fica
+fora da pasta sincronizada do MEGA (o `.git` não deve ser sincronizado por ela).
 
-**Partida para ocorrências de recorrência (13/11/2026), branch `feat/recurring-match`**: as 4 fatias estão implementadas e a suíte
-completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas restantes abaixo). Falta: PR para `main`. Desenho aprovado pelo dono:
+**Partida para ocorrências de recorrência (13/11/2026), mergeada no `main` (PR #7)**: as 4 fatias estão implementadas e testadas.
+`/code-review` feito (achados aplicados; dívidas restantes abaixo). Desenho aprovado pelo dono:
 - Não cria `Reservation` por ocorrência (duplicaria a ocupação). A partida tem **duas origens**: `reservation_id` **ou**
   `recurring_reservation_id + occurrence_date` (`chk_matches_single_source`), e guarda cópia de dono, slot, data, horário e preço (V18).
 - Preço da ocorrência: preço do slot **copiado e congelado** na criação (`Match.forOccurrence`).
@@ -158,7 +160,8 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
   e só então valida (dia da semana/período = 400; liberada ou já iniciada = 409; existente é devolvida antes disso).
 - Série sem organizador não tem partida. O admin vincula/troca organizador com
   `PATCH /establishments/{e}/sports-fields/{f}/schedule-slots/{s}/recurring-reservations/{id}` (`{"organizerId": n}`), sob o lock do
-  slot; trocar o organizador de série que **já tem partida** → 409. Está em `managementEndpoints()`.
+  slot; só aceita usuário **ativo e com papel `ORGANIZER`** (admin do estabelecimento/plataforma → 400 "User is not an organizer");
+  trocar o organizador de série que **já tem partida** → 409. Está em `managementEndpoints()`.
 - `GET /me/recurring-reservations` e `GET /me/recurring-reservations/{id}/occurrences?weeks=8` (1..26; hoje só entra se o horário
   não começou; traz `released`, `matchId`, `matchPublicToken`). Qualquer ocorrência futura e ativa pode ganhar partida; criação sob demanda.
 - Ocorrência "cancelada" = data liberada (`recurring_reservations_releases`); decidida só em `MatchService.isSourceCancelled`.
@@ -172,8 +175,6 @@ paginação em `/me/reservations`; listagem de reservas por estabelecimento para
 refresh token/revogação (decisão pendente nº 6).
 
 Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
-- `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
-  estabelecimento (a criação de recorrência já era assim); decisão do dono: exigir `ORGANIZER`?
 - A regra "não trocar o organizador de série com partida" vive só no service (e cria ciclo de pacotes `reservation` ↔ `match`); outro
   código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
 - `MatchService.isSourceCancelled` consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez

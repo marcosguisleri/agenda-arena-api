@@ -17,6 +17,7 @@ import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotNotFoundExcept
 import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import br.dev.guisleri.agendaarena.user.entity.User;
+import br.dev.guisleri.agendaarena.user.model.UserRole;
 import br.dev.guisleri.agendaarena.user.service.UserService;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -336,6 +337,12 @@ public class RecurringReservationService {
 
         if (!organizer.isActive()) {
             throw new RecurringReservationNotAllowedException("Organizer is not active");
+        }
+
+        // Quem gerencia a série e cria as partidas é um organizador: contas administrativas
+        // (do estabelecimento ou da plataforma) não podem ser vinculadas por este caminho.
+        if (organizer.getRole() != UserRole.ORGANIZER) {
+            throw new RecurringReservationNotAllowedException("User is not an organizer");
         }
 
         User current = recurringReservation.getOrganizer();

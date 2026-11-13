@@ -107,6 +107,7 @@ class MatchClosingIntegrationTests {
     private User organizer;
     private User otherOrganizer;
     private long reservationId;
+    private long matchId;
     private String token;
 
     @DynamicPropertySource
@@ -145,6 +146,8 @@ class MatchClosingIntegrationTests {
 
         reservationId = reserve(baseDate);
         token = createMatch();
+        matchId = jdbcTemplate.queryForObject(
+                "SELECT id FROM matches WHERE public_token = ?", Long.class, token);
     }
 
     @AfterEach
@@ -626,7 +629,7 @@ class MatchClosingIntegrationTests {
 
             Future<?> closing = executor.submit(() ->
                     inTransaction(() -> {
-                        matchService.closeMatch(organizer.getId(), reservationId);
+                        matchService.closeMatch(organizer.getId(), matchId);
                         closeSaved.countDown();
                         await(allowCloseCommit);
                     })
@@ -722,7 +725,7 @@ class MatchClosingIntegrationTests {
     }
 
     private String matchPath() {
-        return "/me/reservations/" + reservationId + "/match";
+        return "/me/matches/" + matchId;
     }
 
     private String participantPath(long participantId) {
@@ -730,7 +733,7 @@ class MatchClosingIntegrationTests {
     }
 
     private String createMatch() throws Exception {
-        String response = mockMvc.perform(post(matchPath())
+        String response = mockMvc.perform(post("/me/reservations/" + reservationId + "/match")
                         .header("Authorization", bearer(organizer)))
                 .andExpect(status().isCreated())
                 .andReturn()

@@ -2,6 +2,7 @@ package br.dev.guisleri.agendaarena.reservation.controller;
 
 import br.dev.guisleri.agendaarena.reservation.dto.CreateRecurringReservationReleaseRequestDTO;
 import br.dev.guisleri.agendaarena.reservation.dto.CreateRecurringReservationRequestDTO;
+import br.dev.guisleri.agendaarena.reservation.dto.LinkRecurringReservationOrganizerRequestDTO;
 import br.dev.guisleri.agendaarena.reservation.dto.RecurringReservationReleaseResponseDTO;
 import br.dev.guisleri.agendaarena.reservation.dto.RecurringReservationResponseDTO;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
@@ -71,6 +72,29 @@ public class RecurringReservationController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(RecurringReservationReleaseResponseDTO.fromEntity(release));
+
+    }
+
+    @PatchMapping("/{recurringReservationId}")
+    public ResponseEntity<RecurringReservationResponseDTO> linkOrganizer(
+            @PathVariable Long establishmentId,
+            @PathVariable Long sportFieldId,
+            @PathVariable Long scheduleSlotId,
+            @PathVariable Long recurringReservationId,
+            @Valid @RequestBody LinkRecurringReservationOrganizerRequestDTO requestDTO
+    ) {
+
+        return ResponseEntity.ok(
+                RecurringReservationResponseDTO.fromEntity(
+                        recurringReservationService.linkOrganizer(
+                                establishmentId,
+                                sportFieldId,
+                                scheduleSlotId,
+                                recurringReservationId,
+                                requestDTO.organizerId()
+                        )
+                )
+        );
 
     }
 

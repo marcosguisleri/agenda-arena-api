@@ -17,15 +17,22 @@ import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
 import br.dev.guisleri.agendaarena.match.model.ShirtColor;
 import br.dev.guisleri.agendaarena.match.repository.MatchParticipantRepository;
 import br.dev.guisleri.agendaarena.match.repository.MatchRepository;
+import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
+import br.dev.guisleri.agendaarena.reservation.repository.RecurringReservationReleaseRepository;
+import br.dev.guisleri.agendaarena.reservation.service.RecurringReservationService;
 import br.dev.guisleri.agendaarena.reservation.service.ReservationService;
+import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
+import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -51,6 +58,9 @@ public class MatchService {
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
     private final ReservationService reservationService;
+    private final RecurringReservationService recurringReservationService;
+    private final ScheduleSlotService scheduleSlotService;
+    private final RecurringReservationReleaseRepository recurringReservationReleaseRepository;
     private final MatchTokenGenerator matchTokenGenerator;
     private final Clock clock;
     private final RandomGenerator randomGenerator;
@@ -59,6 +69,9 @@ public class MatchService {
             MatchRepository matchRepository,
             MatchParticipantRepository matchParticipantRepository,
             ReservationService reservationService,
+            RecurringReservationService recurringReservationService,
+            ScheduleSlotService scheduleSlotService,
+            RecurringReservationReleaseRepository recurringReservationReleaseRepository,
             MatchTokenGenerator matchTokenGenerator,
             Clock clock,
             RandomGenerator randomGenerator
@@ -66,6 +79,9 @@ public class MatchService {
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
         this.reservationService = reservationService;
+        this.recurringReservationService = recurringReservationService;
+        this.scheduleSlotService = scheduleSlotService;
+        this.recurringReservationReleaseRepository = recurringReservationReleaseRepository;
         this.matchTokenGenerator = matchTokenGenerator;
         this.clock = clock;
         this.randomGenerator = randomGenerator;
@@ -87,7 +103,7 @@ public class MatchService {
                 reservationService.findOrganizerReservationForUpdate(organizerId, reservationId);
 
         Optional<Match> existing =
-                matchRepository.findByReservationIdAndReservationOrganizerId(
+                matchRepository.findByReservationIdAndOrganizerId(
                         reservationId,
                         organizerId
                 );
@@ -102,27 +118,131 @@ public class MatchService {
             );
         }
 
-        if (hasStarted(reservation)) {
+        if (hasStarted(reservation.getReservationDate(), reservation.getStartTime())) {
             throw new ReservationNotEligibleForMatchException("Reservation has already started");
         }
 
         matchRepository.saveAndFlush(
-                Match.open(reservation, matchTokenGenerator.newToken(), clock.instant())
+                Match.forReservation(reservation, matchTokenGenerator.newToken(), clock.instant())
         );
 
         // Relê com o grafo completo (campo e estabelecimento) para o DTO fora da transação.
-        return new MatchCreationResult(findMyMatch(organizerId, reservationId), true);
+        return new MatchCreationResult(
+                findMyMatchByReservation(organizerId, reservationId),
+                true
+        );
     }
 
     /**
-     * Partida de reserva de outro organizador é tratada como inexistente (404).
+     * Cria a partida de uma ocorrência da série do organizador, ou devolve a existente
+     * (idempotente). Mesmo protocolo da reserva avulsa: trava o slot da série antes de validar,
+     * então criação dupla e liberação da data se serializam (quem chega depois vê o resultado do
+     * primeiro). Só ocorrência futura e não liberada; o preço é o do slot, congelado agora.
+     */
+    @Transactional
+    public MatchCreationResult createOccurrenceMatch(
+            Long organizerId,
+            Long recurringReservationId,
+            LocalDate occurrenceDate
+    ) {
+        RecurringReservation series =
+                recurringReservationService.findOrganizerRecurringReservationForUpdate(
+                        organizerId,
+                        recurringReservationId
+                );
+
+        recurringReservationService.ensureDateIsOccurrenceOfSeries(series, occurrenceDate);
+
+        Optional<Match> existing =
+                matchRepository.findByRecurringReservationIdAndOccurrenceDateAndOrganizerId(
+                        recurringReservationId,
+                        occurrenceDate,
+                        organizerId
+                );
+
+        if (existing.isPresent()) {
+            return new MatchCreationResult(details(existing.get()), false);
+        }
+
+        ScheduleSlot slot = series.getScheduleSlot();
+
+        // Como a liberação e o vínculo: horário desativado não recebe novas partidas.
+        scheduleSlotService.ensureBookable(slot);
+
+        if (recurringReservationReleaseRepository
+                .existsByRecurringReservationIdAndOccurrenceDate(
+                        recurringReservationId,
+                        occurrenceDate
+                )) {
+            throw new ReservationNotEligibleForMatchException("Occurrence was released");
+        }
+
+        if (hasStarted(occurrenceDate, slot.getStartTime())) {
+            throw new ReservationNotEligibleForMatchException("Occurrence has already started");
+        }
+
+        matchRepository.saveAndFlush(
+                Match.forOccurrence(
+                        series,
+                        occurrenceDate,
+                        matchTokenGenerator.newToken(),
+                        clock.instant()
+                )
+        );
+
+        return new MatchCreationResult(
+                findMyMatchByOccurrence(organizerId, recurringReservationId, occurrenceDate),
+                true
+        );
+    }
+
+    /**
+     * Partida pela ocorrência de origem. De outro organizador é tratada como inexistente (404).
      */
     @Transactional(readOnly = true)
-    public MatchDetails findMyMatch(Long organizerId, Long reservationId) {
+    public MatchDetails findMyMatchByOccurrence(
+            Long organizerId,
+            Long recurringReservationId,
+            LocalDate occurrenceDate
+    ) {
         return details(
                 matchRepository
-                        .findByReservationIdAndReservationOrganizerId(reservationId, organizerId)
-                        .orElseThrow(() -> matchNotFound(reservationId))
+                        .findByRecurringReservationIdAndOccurrenceDateAndOrganizerId(
+                                recurringReservationId,
+                                occurrenceDate,
+                                organizerId
+                        )
+                        .orElseThrow(() -> new MatchNotFoundException(
+                                "Match for occurrence " + occurrenceDate
+                                        + " of recurring reservation with id "
+                                        + recurringReservationId + " not found"
+                        ))
+        );
+    }
+
+    /**
+     * Partida pela reserva de origem. De outro organizador é tratada como inexistente (404).
+     */
+    @Transactional(readOnly = true)
+    public MatchDetails findMyMatchByReservation(Long organizerId, Long reservationId) {
+        return details(
+                matchRepository
+                        .findByReservationIdAndOrganizerId(reservationId, organizerId)
+                        .orElseThrow(() -> new MatchNotFoundException(
+                                "Match for reservation with id " + reservationId + " not found"
+                        ))
+        );
+    }
+
+    /**
+     * Partida pelo id. De outro organizador é tratada como inexistente (404).
+     */
+    @Transactional(readOnly = true)
+    public MatchDetails findMyMatch(Long organizerId, Long matchId) {
+        return details(
+                matchRepository
+                        .findByIdAndOrganizerId(matchId, organizerId)
+                        .orElseThrow(() -> matchNotFound(matchId))
         );
     }
 
@@ -152,7 +272,7 @@ public class MatchService {
                 .orElseThrow(() -> new MatchNotFoundException("Match not found"));
 
         ensureOpen(match);
-        ensureReservationAcceptsPlayers(match.getReservation());
+        ensureMatchAcceptsPlayers(match);
         ensurePositionAvailable(match, position);
 
         matchParticipantRepository.saveAndFlush(
@@ -169,11 +289,11 @@ public class MatchService {
     @Transactional
     public MatchDetails changeParticipantPosition(
             Long organizerId,
-            Long reservationId,
+            Long matchId,
             Long participantId,
             PlayerPosition position
     ) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         ensureOpen(match);
 
@@ -190,12 +310,12 @@ public class MatchService {
             matchParticipantRepository.saveAndFlush(participant);
         }
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     @Transactional
-    public void removeParticipant(Long organizerId, Long reservationId, Long participantId) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+    public void removeParticipant(Long organizerId, Long matchId, Long participantId) {
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         ensureOpen(match);
 
@@ -217,11 +337,11 @@ public class MatchService {
     @Transactional
     public MatchDetails changeParticipantPaysShare(
             Long organizerId,
-            Long reservationId,
+            Long matchId,
             Long participantId,
             boolean paysShare
     ) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         ensureOpen(match);
 
@@ -232,7 +352,7 @@ public class MatchService {
         participant.changePaysShare(paysShare);
         matchParticipantRepository.saveAndFlush(participant);
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     /**
@@ -242,11 +362,11 @@ public class MatchService {
     @Transactional
     public MatchDetails changeParticipantPayment(
             Long organizerId,
-            Long reservationId,
+            Long matchId,
             Long participantId,
             boolean paid
     ) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, matchId);
         MatchParticipant participant = findParticipant(match, participantId);
 
         if (paid && !participant.isPaysShare()) {
@@ -264,20 +384,20 @@ public class MatchService {
 
         matchParticipantRepository.saveAndFlush(participant);
 
-        return readyForView(current, organizerId, reservationId);
+        return readyForView(current, organizerId, matchId);
     }
 
     /**
      * Define a chave Pix exibida na página (vazia remove). Só exibição: o pagamento é externo.
      */
     @Transactional
-    public MatchDetails changePixKey(Long organizerId, Long reservationId, String pixKey) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+    public MatchDetails changePixKey(Long organizerId, Long matchId, String pixKey) {
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         match.changePixKey(pixKey == null || pixKey.isBlank() ? null : pixKey.trim());
         matchRepository.saveAndFlush(match);
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     // ---------- Fechar e reabrir ----------
@@ -287,8 +407,8 @@ public class MatchService {
      * nenhuma inscrição concorrente entra depois do cálculo.
      */
     @Transactional
-    public MatchDetails closeMatch(Long organizerId, Long reservationId) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+    public MatchDetails closeMatch(Long organizerId, Long matchId) {
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         ensureOpen(match);
 
@@ -308,7 +428,7 @@ public class MatchService {
         matchRepository.saveAndFlush(match);
 
         // Cotas congeladas = cotas calculadas acima: a mesma lista serve para a resposta.
-        return readyForView(current, organizerId, reservationId);
+        return readyForView(current, organizerId, matchId);
     }
 
     /**
@@ -317,8 +437,8 @@ public class MatchService {
      * nº 7, recomendação aceita).
      */
     @Transactional
-    public MatchDetails reopenMatch(Long organizerId, Long reservationId) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+    public MatchDetails reopenMatch(Long organizerId, Long matchId) {
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         if (match.getStatus() != MatchStatus.CLOSED) {
             throw new MatchInvalidStateException("Match is not closed");
@@ -333,7 +453,7 @@ public class MatchService {
         matchParticipantRepository.saveAll(participants);
         matchRepository.saveAndFlush(match);
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     // ---------- Times ----------
@@ -343,8 +463,8 @@ public class MatchService {
      * divisão anterior, inclusive a montada à mão.
      */
     @Transactional
-    public MatchDetails drawTeams(Long organizerId, Long reservationId) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+    public MatchDetails drawTeams(Long organizerId, Long matchId) {
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         List<MatchParticipant> participants =
                 matchParticipantRepository.findAllByMatchIdOrderByCreatedAtAscIdAsc(match.getId());
@@ -373,7 +493,7 @@ public class MatchService {
         matchParticipantRepository.saveAll(participants);
         matchRepository.saveAndFlush(match);
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     /**
@@ -383,11 +503,11 @@ public class MatchService {
     @Transactional
     public MatchDetails changeParticipantTeam(
             Long organizerId,
-            Long reservationId,
+            Long matchId,
             Long participantId,
             MatchTeam team
     ) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, matchId);
         MatchParticipant participant = findParticipant(match, participantId);
 
         participant.assignTeam(team);
@@ -396,7 +516,7 @@ public class MatchService {
         matchParticipantRepository.saveAndFlush(participant);
         matchRepository.saveAndFlush(match);
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     /**
@@ -406,12 +526,12 @@ public class MatchService {
     @Transactional
     public MatchDetails changeTeamSettings(
             Long organizerId,
-            Long reservationId,
+            Long matchId,
             MatchTeam team,
             String name,
             ShirtColor shirtColor
     ) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, matchId);
         MatchTeam otherTeam = team == MatchTeam.A ? MatchTeam.B : MatchTeam.A;
 
         if (shirtColor != null && shirtColor == match.getTeamShirtColor(otherTeam)) {
@@ -421,7 +541,7 @@ public class MatchService {
         match.changeTeam(team, normalizeName(name), shirtColor);
         matchRepository.saveAndFlush(match);
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     /**
@@ -431,13 +551,13 @@ public class MatchService {
     @Transactional
     public MatchDetails changeTeamsSettings(
             Long organizerId,
-            Long reservationId,
+            Long matchId,
             String teamAName,
             ShirtColor teamAShirtColor,
             String teamBName,
             ShirtColor teamBShirtColor
     ) {
-        Match match = lockMyActiveMatch(organizerId, reservationId);
+        Match match = lockMyActiveMatch(organizerId, matchId);
 
         if (teamAShirtColor != null && teamAShirtColor == teamBShirtColor) {
             throw new TeamShirtColorConflictException("Teams must have different shirt colors");
@@ -447,7 +567,7 @@ public class MatchService {
         match.changeTeam(MatchTeam.B, normalizeName(teamBName), teamBShirtColor);
         matchRepository.saveAndFlush(match);
 
-        return findMyMatch(organizerId, reservationId);
+        return findMyMatch(organizerId, matchId);
     }
 
     // ---------- Apoio ----------
@@ -456,8 +576,8 @@ public class MatchService {
      * Garante o grafo da reserva (campo, estabelecimento) carregado para o DTO fora da transação,
      * numa consulta só, reaproveitando a lista de participantes já carregada.
      */
-    private MatchDetails readyForView(MatchDetails details, Long organizerId, Long reservationId) {
-        matchRepository.findByReservationIdAndReservationOrganizerId(reservationId, organizerId);
+    private MatchDetails readyForView(MatchDetails details, Long organizerId, Long matchId) {
+        matchRepository.findByIdAndOrganizerId(matchId, organizerId);
 
         return details;
     }
@@ -467,17 +587,13 @@ public class MatchService {
      * reserva foi cancelada: não faz sentido fechar, cobrar ou montar times de um horário que não
      * existe mais. A leitura continua liberada.
      */
-    private Match lockMyActiveMatch(Long organizerId, Long reservationId) {
-        Long matchId = matchRepository
-                .findIdByReservationIdAndOrganizerId(reservationId, organizerId)
-                .orElseThrow(() -> matchNotFound(reservationId));
-
+    private Match lockMyActiveMatch(Long organizerId, Long matchId) {
         Match match = matchRepository
-                .findByIdForUpdate(matchId)
-                .orElseThrow(() -> matchNotFound(reservationId));
+                .findByIdAndOrganizerIdForUpdate(matchId, organizerId)
+                .orElseThrow(() -> matchNotFound(matchId));
 
-        if (match.getReservation().getStatus() == ReservationStatus.CANCELLED) {
-            throw new MatchInvalidStateException("Reservation was cancelled");
+        if (isSourceCancelled(match)) {
+            throw new MatchInvalidStateException(cancelledMessage(match));
         }
 
         return match;
@@ -505,7 +621,7 @@ public class MatchService {
                     .filter(MatchParticipant::isPaysShare)
                     .toList();
             Iterator<BigDecimal> payerShares = MatchSplitCalculator
-                    .split(match.getReservation().getPrice(), payers.size())
+                    .split(match.getPrice(), payers.size())
                     .iterator();
 
             for (MatchParticipant participant : participants) {
@@ -525,7 +641,7 @@ public class MatchService {
             }
         }
 
-        return new MatchDetails(match, participants, shares);
+        return new MatchDetails(match, participants, shares, isSourceCancelled(match));
     }
 
     private static void ensureOpen(Match match) {
@@ -549,23 +665,45 @@ public class MatchService {
         }
     }
 
-    private void ensureReservationAcceptsPlayers(Reservation reservation) {
-        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
-            throw new MatchRegistrationNotAllowedException("Reservation was cancelled");
+    private void ensureMatchAcceptsPlayers(Match match) {
+        if (isSourceCancelled(match)) {
+            throw new MatchRegistrationNotAllowedException(cancelledMessage(match));
         }
 
-        if (hasStarted(reservation)) {
+        if (hasStarted(match.getDate(), match.getStartTime())) {
             throw new MatchRegistrationNotAllowedException("Match has already started");
         }
     }
 
-    private boolean hasStarted(Reservation reservation) {
-        LocalDateTime startsAt = LocalDateTime.of(
-                reservation.getReservationDate(),
-                reservation.getStartTime()
-        );
+    /**
+     * Único ponto que decide se o horário de origem deixou de existir. Origem reserva: reserva
+     * cancelada. Origem ocorrência de recorrência: data liberada.
+     */
+    private boolean isSourceCancelled(Match match) {
+        Reservation reservation = match.getReservation();
 
-        return !startsAt.isAfter(LocalDateTime.now(clock));
+        if (reservation != null) {
+            return reservation.getStatus() == ReservationStatus.CANCELLED;
+        }
+
+        RecurringReservation series = match.getRecurringReservation();
+
+        return series != null
+                && recurringReservationReleaseRepository
+                .existsByRecurringReservationIdAndOccurrenceDate(
+                        series.getId(),
+                        match.getOccurrenceDate()
+                );
+    }
+
+    private static String cancelledMessage(Match match) {
+        return match.getReservation() != null
+                ? "Reservation was cancelled"
+                : "Occurrence was released";
+    }
+
+    private boolean hasStarted(LocalDate date, LocalTime startTime) {
+        return !LocalDateTime.of(date, startTime).isAfter(LocalDateTime.now(clock));
     }
 
     /**
@@ -592,9 +730,7 @@ public class MatchService {
         return name.trim().replaceAll("\\s+", " ");
     }
 
-    private static MatchNotFoundException matchNotFound(Long reservationId) {
-        return new MatchNotFoundException(
-                "Match for reservation with id " + reservationId + " not found"
-        );
+    private static MatchNotFoundException matchNotFound(Long matchId) {
+        return new MatchNotFoundException("Match with id " + matchId + " not found");
     }
 }

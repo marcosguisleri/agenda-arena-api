@@ -115,6 +115,7 @@ class MatchParticipantIntegrationTests {
     private User organizer;
     private User otherOrganizer;
     private long reservationId;
+    private long matchId;
     private String token;
 
     @DynamicPropertySource
@@ -153,6 +154,8 @@ class MatchParticipantIntegrationTests {
 
         reservationId = reserve(organizer, baseDate);
         token = createMatch(organizer, reservationId);
+        matchId = jdbcTemplate.queryForObject(
+                "SELECT id FROM matches WHERE public_token = ?", Long.class, token);
     }
 
     @AfterEach
@@ -293,10 +296,17 @@ class MatchParticipantIntegrationTests {
 
         @Test
         void shouldRejectJoinAfterTheMatchStarted() throws Exception {
+            // A data vive na reserva e na cópia da partida (V18): move as duas.
+            LocalDate yesterday = LocalDate.now(clock).minusDays(1);
             jdbcTemplate.update(
                     "UPDATE reservations SET reservation_date = ? WHERE id = ?",
-                    LocalDate.now(clock).minusDays(1),
+                    yesterday,
                     reservationId
+            );
+            jdbcTemplate.update(
+                    "UPDATE matches SET match_date = ? WHERE public_token = ?",
+                    yesterday,
+                    token
             );
 
             join(token, "Joao", "FIELD")
@@ -486,7 +496,7 @@ class MatchParticipantIntegrationTests {
                     inTransaction(() -> {
                         matchService.changeParticipantPosition(
                                 organizer.getId(),
-                                reservationId,
+                                matchId,
                                 fieldPlayerId,
                                 PlayerPosition.GOALKEEPER
                         );
@@ -572,7 +582,7 @@ class MatchParticipantIntegrationTests {
     }
 
     private String matchPath() {
-        return "/me/reservations/" + reservationId + "/match";
+        return "/me/matches/" + matchId;
     }
 
     private String participantPath(long participantId) {

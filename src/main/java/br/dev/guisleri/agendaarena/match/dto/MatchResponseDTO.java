@@ -16,14 +16,25 @@ import java.time.LocalTime;
 import java.util.List;
 
 /**
- * Visão do organizador: inclui o token para montar o link compartilhável e os ids dos
- * participantes para editar a lista.
+ * Visão do organizador: inclui o id (gestão em {@code /me/matches/{id}}), o token para montar o
+ * link compartilhável e os ids dos participantes para editar a lista.
+ *
+ * @param reservationId     reserva de origem; nulo quando a origem é uma ocorrência de recorrência
+ * @param reservationStatus estado da reserva de origem; nulo quando a origem é uma ocorrência
+ * @param recurringReservationId série de origem; nulo quando a origem é uma reserva avulsa
+ * @param occurrenceDate         data da ocorrência de origem; nula quando a origem é uma reserva
+ * @param cancelled         o horário de origem deixou de existir (reserva cancelada ou
+ *                          ocorrência liberada)
  */
 public record MatchResponseDTO(
+        Long id,
         Long reservationId,
+        Long recurringReservationId,
+        LocalDate occurrenceDate,
         String publicToken,
         MatchStatus status,
         ReservationStatus reservationStatus,
+        boolean cancelled,
         String establishmentName,
         String sportFieldName,
         LocalDate date,
@@ -43,20 +54,26 @@ public record MatchResponseDTO(
     public static MatchResponseDTO fromDetails(MatchDetails details) {
         Match match = details.match();
         Reservation reservation = match.getReservation();
-        SportField sportField = reservation.getScheduleSlot().getSportField();
+        SportField sportField = match.getScheduleSlot().getSportField();
         List<MatchParticipant> participants = details.participants();
 
         return new MatchResponseDTO(
-                reservation.getId(),
+                match.getId(),
+                reservation != null ? reservation.getId() : null,
+                match.getRecurringReservation() != null
+                        ? match.getRecurringReservation().getId()
+                        : null,
+                match.getOccurrenceDate(),
                 match.getPublicToken(),
                 match.getStatus(),
-                reservation.getStatus(),
+                reservation != null ? reservation.getStatus() : null,
+                details.sourceCancelled(),
                 sportField.getEstablishment().getName(),
                 sportField.getName(),
-                reservation.getReservationDate(),
-                reservation.getStartTime(),
-                reservation.getEndTime(),
-                reservation.getPrice(),
+                match.getDate(),
+                match.getStartTime(),
+                match.getEndTime(),
+                match.getPrice(),
                 match.getPixKey(),
                 match.getCreatedAt(),
                 match.getClosedAt(),

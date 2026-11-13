@@ -1,6 +1,7 @@
 package br.dev.guisleri.agendaarena.reservation.repository;
 
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,6 +16,42 @@ import java.util.Optional;
 public interface RecurringReservationRepository extends JpaRepository<RecurringReservation, Long> {
 
     Optional<RecurringReservation> findByIdAndScheduleSlotId(Long id, Long scheduleSlotId);
+
+    /**
+     * Séries do organizador com tudo o que "minhas recorrências" mostra (slot, quadra e
+     * estabelecimento) numa consulta só: open-in-view está desligado.
+     */
+    @EntityGraph(attributePaths = {
+            "scheduleSlot",
+            "scheduleSlot.sportField",
+            "scheduleSlot.sportField.establishment"
+    })
+    List<RecurringReservation> findAllByOrganizerIdOrderByStartDateDescIdDesc(Long organizerId);
+
+    /**
+     * Série de outro organizador (ou sem organizador) é tratada como inexistente.
+     */
+    @EntityGraph(attributePaths = {
+            "scheduleSlot",
+            "scheduleSlot.sportField",
+            "scheduleSlot.sportField.establishment"
+    })
+    Optional<RecurringReservation> findByIdAndOrganizerId(Long id, Long organizerId);
+
+    /**
+     * Ids necessários para travar o horário da série antes de carregá-la (sem carregar a entidade).
+     */
+    @Query("""
+        SELECT new br.dev.guisleri.agendaarena.reservation.repository.ReservationSlotKey(
+            r.scheduleSlot.id, r.scheduleSlot.sportField.id
+        )
+        FROM RecurringReservation r
+        WHERE r.id = :recurringReservationId AND r.organizer.id = :organizerId
+        """)
+    Optional<ReservationSlotKey> findSlotKeyByIdAndOrganizerId(
+            @Param("recurringReservationId") Long recurringReservationId,
+            @Param("organizerId") Long organizerId
+    );
 
     @Query("SELECT COUNT(r) > 0 FROM RecurringReservation r " +
             "WHERE r.scheduleSlot.id = :scheduleSlotId " +

@@ -62,9 +62,9 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
    O modelo atual (um slot por reserva) está correto: não é bug nem funcionalidade faltante.
 
 7. **Partida (lock da partida)**: criar a partida trava o **slot** da reserva (`ReservationService.findOrganizerReservationForUpdate`).
-   Toda alteração da lista/rateio/times trava a **linha de `matches`** (`MatchRepository.findByIdForUpdate` /
-   `findByPublicTokenForUpdate`) **antes** de validar (estado aberto, limite de 4 goleiros, cotas). Para o organizador, primeiro
-   busca o id sem lock e depois trava só `matches` (não estender o `FOR UPDATE` à reserva por join). O limite de goleiros não tem
+   Toda alteração da lista/rateio/times trava a **linha de `matches`** (`MatchRepository.findByIdAndOrganizerIdForUpdate` /
+   `findByPublicTokenForUpdate`) **antes** de validar (estado aberto, limite de 4 goleiros, cotas). Dono, horário, data e preço
+   ficam copiados na partida (V18), então o lock do organizador não faz join com a origem. O limite de goleiros não tem
    constraint: o lock é a barreira. A inscrição pública não trava o slot (corrida aceita: cancelamento simultâneo pode deixar
    uma inscrição a mais; a página mostra a reserva cancelada).
 
@@ -92,7 +92,8 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
   `POST /establishments/{id}/admins`), `PLATFORM_ADMIN` (criado na subida a partir de `PLATFORM_ADMIN_EMAIL/PASSWORD`).
 - **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, cadastro, a leitura do
   catálogo (GET de estabelecimentos, quadras, horários, disponibilidade) e o **link da partida** (`GET /matches/{publicToken}`,
-  `GET /matches/{publicToken}/summary`, `POST /matches/{publicToken}/participants`). O token tem 256 bits (`MatchTokenGenerator`);
+  `GET /matches/{publicToken}/summary`, `POST /matches/{publicToken}/participants`). O organizador cria/consulta a partida pela
+  origem (`/me/reservations/{id}/match`) e gerencia por id (`/me/matches/{matchId}/...`); de outro organizador → 404. O token tem 256 bits (`MatchTokenGenerator`);
   token inválido → 404 sem repetir o token; a visão pública não expõe ids internos nem dados do organizador. Tudo sob `/establishments/{establishmentId}/**` é
   gestão: só admin vinculado àquele estabelecimento (ou PLATFORM_ADMIN). Estabelecimento de outro → **404** (não revela que
   existe); organizador em rota de gestão → 403; anônimo → 401. Criar estabelecimento, mudar status e criar admins: só PLATFORM_ADMIN.
@@ -137,7 +138,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Estado atual e próximo passo (atualizado em 13/11/2026)
 
-Concluído e com a suíte completa passando (**482 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
+Concluído e com a suíte completa passando (**559 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
 e manual, recorrência + liberação de ocorrência, bloqueios, cancelamento admin (com "manter bloqueado"), concluída/não compareceu,
 consulta por id e agenda do admin, autenticação JWT + papéis + isolamento por estabelecimento, "minhas reservas", pedido de
 cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–V17)**. Migrations até a **V17**.
@@ -146,17 +147,46 @@ cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–
 CORS e um commit "wip: backup antes de formatar"), que **ainda não foi mergeada no `main`**. Mergear a base antes de abrir o PR
 da `feat/match`, senão o PR leva tudo junto.
 
-**Próximo (sugestão, aguarda decisão do dono)**: revisar a `feat/match` (`/code-review`, `backend-reviewer`) e organizar os PRs; depois,
-**partida para ocorrências de recorrência** (hoje uma ocorrência não gera linha em `reservations`, então não tem partida; é o caso
-do jogo fixo semanal). Propor desenho e esperar aprovação, como nas demais mudanças estruturais.
+**Partida para ocorrências de recorrência (13/11/2026), branch `feat/recurring-match`**: as 4 fatias estão implementadas e a suíte
+completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas restantes abaixo). Falta: PR para `main`. Desenho aprovado pelo dono:
+- Não cria `Reservation` por ocorrência (duplicaria a ocupação). A partida tem **duas origens**: `reservation_id` **ou**
+  `recurring_reservation_id + occurrence_date` (`chk_matches_single_source`), e guarda cópia de dono, slot, data, horário e preço (V18).
+- Preço da ocorrência: preço do slot **copiado e congelado** na criação (`Match.forOccurrence`).
+- Gestão pelo organizador por id (`/me/matches/{matchId}/...`); criação/consulta pela origem:
+  `POST|GET /me/recurring-reservations/{id}/occurrences/{date}/match` (201 ao criar, 200 se já existia).
+  `MatchService.createOccurrenceMatch`: trava o slot da série (`RecurringReservationService.findOrganizerRecurringReservationForUpdate`)
+  e só então valida (dia da semana/período = 400; liberada ou já iniciada = 409; existente é devolvida antes disso).
+- Série sem organizador não tem partida. O admin vincula/troca organizador com
+  `PATCH /establishments/{e}/sports-fields/{f}/schedule-slots/{s}/recurring-reservations/{id}` (`{"organizerId": n}`), sob o lock do
+  slot; trocar o organizador de série que **já tem partida** → 409. Está em `managementEndpoints()`.
+- `GET /me/recurring-reservations` e `GET /me/recurring-reservations/{id}/occurrences?weeks=8` (1..26; hoje só entra se o horário
+  não começou; traz `released`, `matchId`, `matchPublicToken`). Qualquer ocorrência futura e ativa pode ganhar partida; criação sob demanda.
+- Ocorrência "cancelada" = data liberada (`recurring_reservations_releases`); decidida só em `MatchService.isSourceCancelled`.
+  A resposta da partida traz `recurringReservationId` e `occurrenceDate` (e `reservationId` nulo).
+- Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
+  para alguns grupos.
 
-Dívidas conhecidas: partida em ocorrência de recorrência (acima); sem limite de requisições nem regeneração do token no link público
+Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
 da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
 paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
 refresh token/revogação (decisão pendente nº 6).
 
+Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
+- `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
+  estabelecimento (a criação de recorrência já era assim); decisão do dono: exigir `ORGANIZER`?
+- A regra "não trocar o organizador de série com partida" vive só no service (e cria ciclo de pacotes `reservation` ↔ `match`); outro
+  código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
+- `MatchService.isSourceCancelled` consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
+  por transação.
+- "O horário de hoje já começou?" está em 3 lugares com expressões diferentes (`RecurringOccurrenceService`, `MatchService.hasStarted`,
+  `RecurringReservationService.validateOccurrenceCanBeReleased`): extrair um helper com `Clock`.
+- `@EntityGraph` repetido em 4 finders do `MatchRepository` (usar `@NamedEntityGraph`); `MatchService.readyForView` roda uma consulta só
+  pelo efeito colateral de carregar o grafo.
+- Falta índice em `matches.schedule_slot_id` (nova migration; a V18 não pode ser editada).
+
 Armadilhas já vistas neste projeto: `target/` velho causa erro estranho (use `./mvnw clean test`); **não compile pelo IntelliJ
-enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`);
+enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`,
+`RandomGenerator`; com o IntelliJ aberto, rode a suíte numa cópia do projeto sem `target/`, `.git` e `.env`);
 coluna `status` é `VARCHAR(30)` (V13); o decoder JWT usa o relógio do sistema, então testes de segurança não podem usar `Clock`
 fixo; testes carregam o `.env` (o admin da plataforma também é criado no banco do container, sem efeito no banco real); clone
 novo **não tem `.env`** (criar a partir do `.env.example`; a API não sobe sem ele); a porta 5432 pode estar ocupada por outro
@@ -253,7 +283,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Partida: inscrição pelo link, linha/goleiro, edição pelo organizador | **implementado e testado** (fatia 2): V15; até 4 goleiros sob lock da partida; corridas testadas | `MatchService.joinMatch`, `MatchParticipantIntegrationTests` |
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
-| Partida em ocorrência de recorrência | pendente (dívida) | ocorrência não gera `Reservation` |
+| Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

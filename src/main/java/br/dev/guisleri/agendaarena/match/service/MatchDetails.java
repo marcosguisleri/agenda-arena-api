@@ -10,13 +10,16 @@ import java.util.Map;
 /**
  * Partida com os participantes em ordem de inscrição, já carregados para o DTO.
  *
- * @param shares cota de cada participante pelo id (zero para isentos): congelada se a partida
- *               está fechada, calculada na hora se está aberta
+ * @param shares          cota de cada participante pelo id (zero para isentos): congelada se a
+ *                        partida está fechada, calculada na hora se está aberta
+ * @param sourceCancelled o horário de origem deixou de existir (reserva cancelada ou ocorrência
+ *                        de recorrência liberada)
  */
 public record MatchDetails(
         Match match,
         List<MatchParticipant> participants,
-        Map<Long, BigDecimal> shares
+        Map<Long, BigDecimal> shares,
+        boolean sourceCancelled
 ) {
     public BigDecimal shareOf(MatchParticipant participant) {
         return shares.get(participant.getId());

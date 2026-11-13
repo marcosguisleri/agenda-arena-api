@@ -1,8 +1,11 @@
 package br.dev.guisleri.agendaarena.match.entity;
 
+import br.dev.guisleri.agendaarena.match.model.MatchTeam;
 import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -55,6 +58,15 @@ public class MatchParticipant {
      */
     @Column(name = "paid_amount", precision = 10, scale = 2)
     private BigDecimal paidAmount;
+
+    /**
+     * Time A ou B (sorteio ou montagem manual); nulo = sem time. Com tamanho 1 o Hibernate
+     * esperaria CHAR(1); a coluna é VARCHAR(1) (V17).
+     */
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(length = 1)
+    private MatchTeam team;
 
     protected MatchParticipant() {
     }
@@ -111,6 +123,13 @@ public class MatchParticipant {
         this.paidAmount = null;
     }
 
+    /**
+     * @param team A, B ou {@code null} (sem time)
+     */
+    public void assignTeam(MatchTeam team) {
+        this.team = team;
+    }
+
     public Long getId() {
         return id;
     }
@@ -145,5 +164,9 @@ public class MatchParticipant {
 
     public BigDecimal getPaidAmount() {
         return paidAmount;
+    }
+
+    public MatchTeam getTeam() {
+        return team;
     }
 }

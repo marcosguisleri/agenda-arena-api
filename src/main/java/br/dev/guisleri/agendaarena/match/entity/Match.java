@@ -1,6 +1,8 @@
 package br.dev.guisleri.agendaarena.match.entity;
 
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
+import br.dev.guisleri.agendaarena.match.model.MatchTeam;
+import br.dev.guisleri.agendaarena.match.model.ShirtColor;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 
 import jakarta.persistence.*;
@@ -41,6 +43,26 @@ public class Match {
     @Column(name = "closed_at")
     private Instant closedAt;
 
+    @Column(name = "team_a_name", nullable = false, length = 30)
+    private String teamAName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "team_a_shirt_color", length = 20)
+    private ShirtColor teamAShirtColor;
+
+    @Column(name = "team_b_name", nullable = false, length = 30)
+    private String teamBName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "team_b_shirt_color", length = 20)
+    private ShirtColor teamBShirtColor;
+
+    /**
+     * Última alteração dos times (sorteio ou movimento manual); nulo se nunca foram montados.
+     */
+    @Column(name = "teams_updated_at")
+    private Instant teamsUpdatedAt;
+
     protected Match() {
     }
 
@@ -51,6 +73,8 @@ public class Match {
         match.publicToken = publicToken;
         match.status = MatchStatus.OPEN;
         match.createdAt = createdAt;
+        match.teamAName = "Time A";
+        match.teamBName = "Time B";
 
         return match;
     }
@@ -60,9 +84,34 @@ public class Match {
         this.closedAt = closedAt;
     }
 
+    /**
+     * Reabrir mantém os times: quem se inscrever depois fica sem time.
+     */
     public void reopen() {
         this.status = MatchStatus.OPEN;
         this.closedAt = null;
+    }
+
+    public void markTeamsUpdated(Instant teamsUpdatedAt) {
+        this.teamsUpdatedAt = teamsUpdatedAt;
+    }
+
+    public void changeTeam(MatchTeam team, String name, ShirtColor shirtColor) {
+        if (team == MatchTeam.A) {
+            this.teamAName = name;
+            this.teamAShirtColor = shirtColor;
+        } else {
+            this.teamBName = name;
+            this.teamBShirtColor = shirtColor;
+        }
+    }
+
+    public String getTeamName(MatchTeam team) {
+        return team == MatchTeam.A ? teamAName : teamBName;
+    }
+
+    public ShirtColor getTeamShirtColor(MatchTeam team) {
+        return team == MatchTeam.A ? teamAShirtColor : teamBShirtColor;
     }
 
     public void changePixKey(String pixKey) {
@@ -95,5 +144,9 @@ public class Match {
 
     public Instant getClosedAt() {
         return closedAt;
+    }
+
+    public Instant getTeamsUpdatedAt() {
+        return teamsUpdatedAt;
     }
 }

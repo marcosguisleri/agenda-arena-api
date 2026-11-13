@@ -113,7 +113,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, API_DOCS_PATTERNS).permitAll()
 
                         // Página da partida pelo link compartilhado (token aleatório, sem conta)
-                        .requestMatchers(HttpMethod.GET, "/matches/{publicToken}").permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/matches/{publicToken}",
+                                "/matches/{publicToken}/summary"
+                        )
+                        .permitAll()
                         .requestMatchers(HttpMethod.POST, "/matches/{publicToken}/participants")
                         .permitAll()
 

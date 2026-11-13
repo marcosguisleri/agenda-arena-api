@@ -4,8 +4,12 @@ import br.dev.guisleri.agendaarena.common.security.AuthenticatedUsers;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPaymentRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPaysShareRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPositionRequestDTO;
+import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantTeamRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangePixKeyRequestDTO;
+import br.dev.guisleri.agendaarena.match.dto.ChangeTeamSettingsRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.MatchResponseDTO;
+import br.dev.guisleri.agendaarena.match.dto.MatchSummaryResponseDTO;
+import br.dev.guisleri.agendaarena.match.model.MatchTeam;
 import br.dev.guisleri.agendaarena.match.service.MatchCreationResult;
 import br.dev.guisleri.agendaarena.match.service.MatchService;
 import jakarta.validation.Valid;
@@ -81,6 +85,70 @@ public class MeMatchController {
     ) {
         return ResponseEntity.ok(MatchResponseDTO.fromDetails(
                 matchService.reopenMatch(AuthenticatedUsers.userId(authentication), reservationId)
+        ));
+    }
+
+    /**
+     * Sorteia (ou refaz) os 2 times com todos os inscritos, substituindo a divisão atual.
+     */
+    @PostMapping("/team-draw")
+    public ResponseEntity<MatchResponseDTO> drawTeams(
+            @PathVariable Long reservationId,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(MatchResponseDTO.fromDetails(
+                matchService.drawTeams(AuthenticatedUsers.userId(authentication), reservationId)
+        ));
+    }
+
+    /**
+     * Nome e cor de camiseta do time A ou B.
+     */
+    @PutMapping("/teams/{team}")
+    public ResponseEntity<MatchResponseDTO> changeTeamSettings(
+            @PathVariable Long reservationId,
+            @PathVariable MatchTeam team,
+            @Valid @RequestBody ChangeTeamSettingsRequestDTO request,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(MatchResponseDTO.fromDetails(
+                matchService.changeTeamSettings(
+                        AuthenticatedUsers.userId(authentication),
+                        reservationId,
+                        team,
+                        request.name(),
+                        request.shirtColor()
+                )
+        ));
+    }
+
+    /**
+     * Montagem manual: {@code {"team": "A"}}, {@code "B"} ou {@code null} (sem time).
+     */
+    @PutMapping("/participants/{participantId}/team")
+    public ResponseEntity<MatchResponseDTO> changeParticipantTeam(
+            @PathVariable Long reservationId,
+            @PathVariable Long participantId,
+            @RequestBody ChangeParticipantTeamRequestDTO request,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(MatchResponseDTO.fromDetails(
+                matchService.changeParticipantTeam(
+                        AuthenticatedUsers.userId(authentication),
+                        reservationId,
+                        participantId,
+                        request.team()
+                )
+        ));
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<MatchSummaryResponseDTO> findMySummary(
+            @PathVariable Long reservationId,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(MatchSummaryResponseDTO.fromDetails(
+                matchService.findMyMatch(AuthenticatedUsers.userId(authentication), reservationId)
         ));
     }
 

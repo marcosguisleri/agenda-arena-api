@@ -1,7 +1,10 @@
 package br.dev.guisleri.agendaarena.match.dto;
 
 import br.dev.guisleri.agendaarena.match.entity.Match;
+import br.dev.guisleri.agendaarena.match.entity.MatchParticipant;
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
+import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
+import br.dev.guisleri.agendaarena.match.service.MatchDetails;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.sportfield.entity.SportField;
@@ -9,6 +12,7 @@ import br.dev.guisleri.agendaarena.sportfield.entity.SportField;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 /**
  * Visão de quem tem o link (sem conta). Sem ids internos, sem dados de contato do organizador e
@@ -22,11 +26,16 @@ public record PublicMatchResponseDTO(
         LocalDate date,
         LocalTime startTime,
         LocalTime endTime,
-        BigDecimal price
+        BigDecimal price,
+        long fieldPlayerCount,
+        long goalkeeperCount,
+        List<PublicParticipantResponseDTO> participants
 ) {
-    public static PublicMatchResponseDTO fromEntity(Match match) {
+    public static PublicMatchResponseDTO fromDetails(MatchDetails details) {
+        Match match = details.match();
         Reservation reservation = match.getReservation();
         SportField sportField = reservation.getScheduleSlot().getSportField();
+        List<MatchParticipant> participants = details.participants();
 
         return new PublicMatchResponseDTO(
                 match.getStatus(),
@@ -36,7 +45,10 @@ public record PublicMatchResponseDTO(
                 reservation.getReservationDate(),
                 reservation.getStartTime(),
                 reservation.getEndTime(),
-                reservation.getPrice()
+                reservation.getPrice(),
+                MatchResponseDTO.count(participants, PlayerPosition.FIELD),
+                MatchResponseDTO.count(participants, PlayerPosition.GOALKEEPER),
+                participants.stream().map(PublicParticipantResponseDTO::fromEntity).toList()
         );
     }
 }

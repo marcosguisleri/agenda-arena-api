@@ -1,15 +1,21 @@
 package br.dev.guisleri.agendaarena.match.controller;
 
 import br.dev.guisleri.agendaarena.common.security.AuthenticatedUsers;
+import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPositionRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.MatchResponseDTO;
+import br.dev.guisleri.agendaarena.match.dto.ParticipantResponseDTO;
 import br.dev.guisleri.agendaarena.match.service.MatchCreationResult;
 import br.dev.guisleri.agendaarena.match.service.MatchService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,7 +47,7 @@ public class MeMatchController {
 
         return ResponseEntity
                 .status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
-                .body(MatchResponseDTO.fromEntity(result.match()));
+                .body(MatchResponseDTO.fromDetails(result.details()));
     }
 
     @GetMapping
@@ -50,12 +56,46 @@ public class MeMatchController {
             Authentication authentication
     ) {
         return ResponseEntity.ok(
-                MatchResponseDTO.fromEntity(
+                MatchResponseDTO.fromDetails(
                         matchService.findMyMatch(
                                 AuthenticatedUsers.userId(authentication),
                                 reservationId
                         )
                 )
         );
+    }
+
+    @PatchMapping("/participants/{participantId}")
+    public ResponseEntity<ParticipantResponseDTO> changeParticipantPosition(
+            @PathVariable Long reservationId,
+            @PathVariable Long participantId,
+            @Valid @RequestBody ChangeParticipantPositionRequestDTO request,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(
+                ParticipantResponseDTO.fromEntity(
+                        matchService.changeParticipantPosition(
+                                AuthenticatedUsers.userId(authentication),
+                                reservationId,
+                                participantId,
+                                request.position()
+                        )
+                )
+        );
+    }
+
+    @DeleteMapping("/participants/{participantId}")
+    public ResponseEntity<Void> removeParticipant(
+            @PathVariable Long reservationId,
+            @PathVariable Long participantId,
+            Authentication authentication
+    ) {
+        matchService.removeParticipant(
+                AuthenticatedUsers.userId(authentication),
+                reservationId,
+                participantId
+        );
+
+        return ResponseEntity.noContent().build();
     }
 }

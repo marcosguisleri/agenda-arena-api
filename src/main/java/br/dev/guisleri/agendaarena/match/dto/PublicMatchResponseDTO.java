@@ -15,11 +15,11 @@ import java.util.List;
 
 /**
  * Visão de quem tem o link (sem conta). Sem ids internos, sem dados de contato do organizador e
- * sem o estado detalhado da reserva: só se ela foi cancelada.
+ * sem o estado detalhado da origem: só se o horário foi cancelado ({@code cancelled}).
  */
 public record PublicMatchResponseDTO(
         MatchStatus status,
-        boolean reservationCancelled,
+        boolean cancelled,
         String establishmentName,
         String sportFieldName,
         LocalDate date,

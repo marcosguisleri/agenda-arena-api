@@ -123,6 +123,7 @@ class MatchTeamsIntegrationTests {
     private User organizer;
     private User otherOrganizer;
     private long reservationId;
+    private long matchId;
     private String token;
 
     @DynamicPropertySource
@@ -161,6 +162,8 @@ class MatchTeamsIntegrationTests {
 
         reservationId = reserve(baseDate);
         token = createMatch();
+        matchId = jdbcTemplate.queryForObject(
+                "SELECT id FROM matches WHERE public_token = ?", Long.class, token);
     }
 
     @AfterEach
@@ -618,7 +621,7 @@ class MatchTeamsIntegrationTests {
             Future<?> first = executor.submit(() ->
                     inTransaction(() -> {
                         matchService.changeTeamSettings(
-                                organizer.getId(), reservationId, MatchTeam.A, "Vermelho",
+                                organizer.getId(), matchId, MatchTeam.A, "Vermelho",
                                 ShirtColor.RED);
                         firstSaved.countDown();
                         await(allowFirstCommit);
@@ -631,7 +634,7 @@ class MatchTeamsIntegrationTests {
             Future<?> second = executor.submit(() ->
                     inNamedTransaction(losingConnection, () ->
                             matchService.changeTeamSettings(
-                                    organizer.getId(), reservationId, MatchTeam.B, "Rubro",
+                                    organizer.getId(), matchId, MatchTeam.B, "Rubro",
                                     ShirtColor.RED)
                     )
             );
@@ -759,7 +762,7 @@ class MatchTeamsIntegrationTests {
     }
 
     private String matchPath() {
-        return "/me/reservations/" + reservationId + "/match";
+        return "/me/matches/" + matchId;
     }
 
     private String participantPath(long participantId) {

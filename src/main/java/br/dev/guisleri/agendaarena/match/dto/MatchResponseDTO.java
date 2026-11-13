@@ -16,14 +16,20 @@ import java.time.LocalTime;
 import java.util.List;
 
 /**
- * Visão do organizador: inclui o token para montar o link compartilhável e os ids dos
- * participantes para editar a lista.
+ * Visão do organizador: inclui o id (gestão em {@code /me/matches/{id}}), o token para montar o
+ * link compartilhável e os ids dos participantes para editar a lista.
+ *
+ * @param reservationId     reserva de origem; nulo quando a origem é uma ocorrência de recorrência
+ * @param reservationStatus estado da reserva de origem; nulo quando a origem é uma ocorrência
+ * @param cancelled         o horário de origem deixou de existir (reserva cancelada)
  */
 public record MatchResponseDTO(
+        Long id,
         Long reservationId,
         String publicToken,
         MatchStatus status,
         ReservationStatus reservationStatus,
+        boolean cancelled,
         String establishmentName,
         String sportFieldName,
         LocalDate date,
@@ -47,10 +53,12 @@ public record MatchResponseDTO(
         List<MatchParticipant> participants = details.participants();
 
         return new MatchResponseDTO(
+                match.getId(),
                 reservation != null ? reservation.getId() : null,
                 match.getPublicToken(),
                 match.getStatus(),
                 reservation != null ? reservation.getStatus() : null,
+                details.sourceCancelled(),
                 sportField.getEstablishment().getName(),
                 sportField.getName(),
                 match.getDate(),

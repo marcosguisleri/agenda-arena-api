@@ -362,6 +362,59 @@ class MatchIntegrationTests {
     }
 
     @Nested
+    @DisplayName("Management by match id")
+    class ManagementByMatchId {
+
+        @Test
+        void shouldExposeMatchIdAndReadMatchById() throws Exception {
+            long reservationId = reserve(organizer, baseDate);
+            String response = createMatch(organizer, reservationId)
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.id").isNumber())
+                    .andExpect(jsonPath("$.cancelled").value(false))
+                    .andReturn().getResponse().getContentAsString();
+            Number matchId = JsonPath.read(response, "$.id");
+
+            mockMvc.perform(get("/me/matches/{id}", matchId)
+                            .header("Authorization", bearer(organizer)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(matchId.longValue()))
+                    .andExpect(jsonPath("$.reservationId").value(reservationId))
+                    .andExpect(jsonPath("$.publicToken").value(JsonPath.<String>read(
+                            response, "$.publicToken")));
+        }
+
+        @Test
+        void shouldHideMatchOfAnotherOrganizerById() throws Exception {
+            long reservationId = reserve(otherOrganizer, baseDate);
+            Number matchId = JsonPath.read(createMatch(otherOrganizer, reservationId)
+                    .andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString(), "$.id");
+
+            mockMvc.perform(get("/me/matches/{id}", matchId)
+                            .header("Authorization", bearer(organizer)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message")
+                            .value("Match with id " + matchId + " not found"));
+            mockMvc.perform(post("/me/matches/{id}/close", matchId)
+                            .header("Authorization", bearer(organizer)))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(get("/me/matches/{id}", matchId))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        void shouldNotKeepManagementUnderReservationPath() throws Exception {
+            long reservationId = reserve(organizer, baseDate);
+            createMatch(organizer, reservationId).andExpect(status().isCreated());
+
+            mockMvc.perform(post(matchPath(reservationId) + "/close")
+                            .header("Authorization", bearer(organizer)))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
     @DisplayName("Public match page")
     class PublicMatchPage {
 
@@ -373,7 +426,7 @@ class MatchIntegrationTests {
             mockMvc.perform(get("/matches/{token}", token))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value("OPEN"))
-                    .andExpect(jsonPath("$.reservationCancelled").value(false))
+                    .andExpect(jsonPath("$.cancelled").value(false))
                     .andExpect(jsonPath("$.establishmentName").value("Arena Central"))
                     .andExpect(jsonPath("$.sportFieldName").value("Campo 1"))
                     .andExpect(jsonPath("$.date").value(baseDate.toString()))
@@ -397,7 +450,7 @@ class MatchIntegrationTests {
 
             mockMvc.perform(get("/matches/{token}", token))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.reservationCancelled").value(true));
+                    .andExpect(jsonPath("$.cancelled").value(true));
         }
 
         @Test

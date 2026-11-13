@@ -138,7 +138,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Estado atual e próximo passo (atualizado em 13/11/2026)
 
-Concluído e com a suíte completa passando (**482 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
+Concluído e com a suíte completa passando (**559 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
 e manual, recorrência + liberação de ocorrência, bloqueios, cancelamento admin (com "manter bloqueado"), concluída/não compareceu,
 consulta por id e agenda do admin, autenticação JWT + papéis + isolamento por estabelecimento, "minhas reservas", pedido de
 cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–V17)**. Migrations até a **V17**.
@@ -147,21 +147,22 @@ cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–
 CORS e um commit "wip: backup antes de formatar"), que **ainda não foi mergeada no `main`**. Mergear a base antes de abrir o PR
 da `feat/match`, senão o PR leva tudo junto.
 
-**Em andamento (13/11/2026): partida para ocorrências de recorrência**, branch `feat/recurring-match` (ainda sem push/PR). Desenho
-aprovado pelo dono, com todas as recomendações aceitas:
-- Não criar `Reservation` por ocorrência (duplicaria a ocupação). A partida tem **duas origens**: `reservation_id` **ou**
-  `recurring_reservation_id + occurrence_date` (`chk_matches_single_source`), e guarda cópia de dono, slot, data, horário e preço.
-- Preço da ocorrência: preço do slot **copiado e congelado** na criação da partida.
-- Gestão pelo organizador por id (`/me/matches/{matchId}/...`); criação/consulta pela origem.
-- Série sem organizador vinculado não tem partida; o admin ganha um `PATCH` para vincular organizador a uma série (usa o
-  `RecurringReservation.linkOrganizer`, hoje sem uso), que entra em `managementEndpoints()`.
-- Qualquer ocorrência futura e ativa pode ganhar partida; a listagem mostra 8 semanas. Criação sob demanda (sem automação semanal).
-- Ocorrência "cancelada" = data liberada (`recurring_reservations_releases`); entra em `MatchService.isSourceCancelled`.
-- Fatias: **1** cópia dos dados na partida (V18) — feita (`refactor(match): copy organizer, slot, ...`); **2** contrato da API
-  (gestão em `/me/matches/{id}`, `reservationCancelled` → `cancelled`, `id` na resposta) — feita; **3** recorrências em `/me`
-  (`GET /me/recurring-reservations`, `GET .../{id}/occurrences?weeks=8`) + `PATCH` do admin para vincular organizador; **4**
-  `POST /me/recurring-reservations/{id}/occurrences/{date}/match` (lock do slot, idempotente, corridas: criação dupla e
-  liberação × criação). Ao fim: atualizar este arquivo, revisar (`/code-review`) e abrir PR para `main`.
+**Partida para ocorrências de recorrência (13/11/2026), branch `feat/recurring-match`**: as 4 fatias estão implementadas e a suíte
+completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas restantes abaixo). Falta: PR para `main`. Desenho aprovado pelo dono:
+- Não cria `Reservation` por ocorrência (duplicaria a ocupação). A partida tem **duas origens**: `reservation_id` **ou**
+  `recurring_reservation_id + occurrence_date` (`chk_matches_single_source`), e guarda cópia de dono, slot, data, horário e preço (V18).
+- Preço da ocorrência: preço do slot **copiado e congelado** na criação (`Match.forOccurrence`).
+- Gestão pelo organizador por id (`/me/matches/{matchId}/...`); criação/consulta pela origem:
+  `POST|GET /me/recurring-reservations/{id}/occurrences/{date}/match` (201 ao criar, 200 se já existia).
+  `MatchService.createOccurrenceMatch`: trava o slot da série (`RecurringReservationService.findOrganizerRecurringReservationForUpdate`)
+  e só então valida (dia da semana/período = 400; liberada ou já iniciada = 409; existente é devolvida antes disso).
+- Série sem organizador não tem partida. O admin vincula/troca organizador com
+  `PATCH /establishments/{e}/sports-fields/{f}/schedule-slots/{s}/recurring-reservations/{id}` (`{"organizerId": n}`), sob o lock do
+  slot; trocar o organizador de série que **já tem partida** → 409. Está em `managementEndpoints()`.
+- `GET /me/recurring-reservations` e `GET /me/recurring-reservations/{id}/occurrences?weeks=8` (1..26; hoje só entra se o horário
+  não começou; traz `released`, `matchId`, `matchPublicToken`). Qualquer ocorrência futura e ativa pode ganhar partida; criação sob demanda.
+- Ocorrência "cancelada" = data liberada (`recurring_reservations_releases`); decidida só em `MatchService.isSourceCancelled`.
+  A resposta da partida traz `recurringReservationId` e `occurrenceDate` (e `reservationId` nulo).
 - Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
   para alguns grupos.
 
@@ -169,6 +170,19 @@ Dívidas conhecidas: sem limite de requisições nem regeneração do token no l
 da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
 paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
 refresh token/revogação (decisão pendente nº 6).
+
+Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
+- `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
+  estabelecimento (a criação de recorrência já era assim); decisão do dono: exigir `ORGANIZER`?
+- A regra "não trocar o organizador de série com partida" vive só no service (e cria ciclo de pacotes `reservation` ↔ `match`); outro
+  código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
+- `MatchService.isSourceCancelled` consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
+  por transação.
+- "O horário de hoje já começou?" está em 3 lugares com expressões diferentes (`RecurringOccurrenceService`, `MatchService.hasStarted`,
+  `RecurringReservationService.validateOccurrenceCanBeReleased`): extrair um helper com `Clock`.
+- `@EntityGraph` repetido em 4 finders do `MatchRepository` (usar `@NamedEntityGraph`); `MatchService.readyForView` roda uma consulta só
+  pelo efeito colateral de carregar o grafo.
+- Falta índice em `matches.schedule_slot_id` (nova migration; a V18 não pode ser editada).
 
 Armadilhas já vistas neste projeto: `target/` velho causa erro estranho (use `./mvnw clean test`); **não compile pelo IntelliJ
 enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`,
@@ -269,7 +283,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Partida: inscrição pelo link, linha/goleiro, edição pelo organizador | **implementado e testado** (fatia 2): V15; até 4 goleiros sob lock da partida; corridas testadas | `MatchService.joinMatch`, `MatchParticipantIntegrationTests` |
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
-| Partida em ocorrência de recorrência | pendente (dívida) | ocorrência não gera `Reservation` |
+| Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

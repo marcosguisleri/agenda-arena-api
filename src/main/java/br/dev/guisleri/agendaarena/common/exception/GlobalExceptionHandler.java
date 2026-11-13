@@ -41,6 +41,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -461,6 +462,21 @@ public class GlobalExceptionHandler {
         return createErrorResponse(
                 HttpStatus.BAD_REQUEST,
                 "Invalid request body",
+                Map.of()
+        );
+    }
+
+    /**
+     * Valor de path/query que não converte (data mal formada, número inválido). Não repete o valor
+     * recebido na resposta.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMethodArgumentTypeMismatchException(
+            MethodArgumentTypeMismatchException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                "Invalid value for parameter '" + exception.getName() + "'",
                 Map.of()
         );
     }

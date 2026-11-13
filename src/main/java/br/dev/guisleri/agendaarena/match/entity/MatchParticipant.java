@@ -4,6 +4,7 @@ import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
 
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -31,6 +32,30 @@ public class MatchParticipant {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /**
+     * Entra no rateio. Padrão: linha paga, goleiro é isento.
+     */
+    @Column(name = "pays_share", nullable = false)
+    private boolean paysShare;
+
+    /**
+     * Valor congelado ao fechar a partida; nulo enquanto ela está aberta.
+     */
+    @Column(name = "share_amount", precision = 10, scale = 2)
+    private BigDecimal shareAmount;
+
+    /**
+     * Pagamento declarado manualmente (não é confirmação bancária).
+     */
+    @Column(nullable = false)
+    private boolean paid;
+
+    /**
+     * Valor da cota quando o pagamento foi declarado.
+     */
+    @Column(name = "paid_amount", precision = 10, scale = 2)
+    private BigDecimal paidAmount;
+
     protected MatchParticipant() {
     }
 
@@ -46,12 +71,44 @@ public class MatchParticipant {
         participant.name = name;
         participant.position = position;
         participant.createdAt = createdAt;
+        participant.paysShare = paysShareByDefault(position);
+        participant.paid = false;
 
         return participant;
     }
 
+    public static boolean paysShareByDefault(PlayerPosition position) {
+        return position != PlayerPosition.GOALKEEPER;
+    }
+
+    /**
+     * Troca a posição e volta à regra padrão de rateio da nova posição.
+     */
     public void changePosition(PlayerPosition position) {
         this.position = position;
+        this.paysShare = paysShareByDefault(position);
+    }
+
+    public void changePaysShare(boolean paysShare) {
+        this.paysShare = paysShare;
+    }
+
+    public void freezeShare(BigDecimal shareAmount) {
+        this.shareAmount = shareAmount;
+    }
+
+    public void unfreezeShare() {
+        this.shareAmount = null;
+    }
+
+    public void markPaid(BigDecimal paidAmount) {
+        this.paid = true;
+        this.paidAmount = paidAmount;
+    }
+
+    public void unmarkPaid() {
+        this.paid = false;
+        this.paidAmount = null;
     }
 
     public Long getId() {
@@ -72,5 +129,21 @@ public class MatchParticipant {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isPaysShare() {
+        return paysShare;
+    }
+
+    public BigDecimal getShareAmount() {
+        return shareAmount;
+    }
+
+    public boolean isPaid() {
+        return paid;
+    }
+
+    public BigDecimal getPaidAmount() {
+        return paidAmount;
     }
 }

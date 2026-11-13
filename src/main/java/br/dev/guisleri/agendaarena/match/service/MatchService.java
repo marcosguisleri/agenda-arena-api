@@ -4,9 +4,11 @@ import br.dev.guisleri.agendaarena.match.entity.Match;
 import br.dev.guisleri.agendaarena.match.entity.MatchParticipant;
 import br.dev.guisleri.agendaarena.match.exception.FieldPlayerLimitReachedException;
 import br.dev.guisleri.agendaarena.match.exception.GoalkeeperLimitReachedException;
+import br.dev.guisleri.agendaarena.match.exception.MatchInvalidStateException;
 import br.dev.guisleri.agendaarena.match.exception.MatchNotFoundException;
 import br.dev.guisleri.agendaarena.match.exception.MatchParticipantNotFoundException;
 import br.dev.guisleri.agendaarena.match.exception.MatchRegistrationNotAllowedException;
+import br.dev.guisleri.agendaarena.match.exception.ParticipantPaymentConflictException;
 import br.dev.guisleri.agendaarena.match.exception.ReservationNotEligibleForMatchException;
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
 import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
@@ -18,8 +20,13 @@ import br.dev.guisleri.agendaarena.reservation.service.ReservationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -34,6 +41,8 @@ public class MatchService {
      * Não há limite de jogo para jogadores de linha; este teto só barra abuso do link público.
      */
     public static final int MAX_FIELD_PLAYERS = 60;
+
+    private static final BigDecimal ZERO_SHARE = BigDecimal.valueOf(0, 2);
 
     private final MatchRepository matchRepository;
     private final MatchParticipantRepository matchParticipantRepository;
@@ -55,6 +64,8 @@ public class MatchService {
         this.clock = clock;
     }
 
+    // ---------- Criação e leitura ----------
+
     /**
      * Cria a partida da reserva do organizador, ou devolve a existente (idempotente).
      * <p>
@@ -74,7 +85,7 @@ public class MatchService {
                 );
 
         if (existing.isPresent()) {
-            return new MatchCreationResult(withParticipants(existing.get()), false);
+            return new MatchCreationResult(details(existing.get()), false);
         }
 
         if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
@@ -96,7 +107,7 @@ public class MatchService {
      */
     @Transactional(readOnly = true)
     public MatchDetails findMyMatch(Long organizerId, Long reservationId) {
-        return withParticipants(
+        return details(
                 matchRepository
                         .findByReservationIdAndReservationOrganizerId(reservationId, organizerId)
                         .orElseThrow(() -> matchNotFound(reservationId))
@@ -108,19 +119,22 @@ public class MatchService {
      */
     @Transactional(readOnly = true)
     public MatchDetails findPublicMatch(String publicToken) {
-        return withParticipants(
+        return details(
                 matchRepository
                         .findByPublicToken(publicToken)
                         .orElseThrow(() -> new MatchNotFoundException("Match not found"))
         );
     }
 
+    // ---------- Lista de participantes ----------
+
     /**
      * Inscrição pelo link (sem conta). Trava a partida antes de validar: estado aberto, reserva
-     * não cancelada, jogo ainda não começou e limite da posição.
+     * não cancelada, jogo ainda não começou e limite da posição. Devolve a página atualizada,
+     * porque a cota de todos muda.
      */
     @Transactional
-    public MatchParticipant joinMatch(String publicToken, String name, PlayerPosition position) {
+    public MatchDetails joinMatch(String publicToken, String name, PlayerPosition position) {
         Match match = matchRepository
                 .findByPublicTokenForUpdate(publicToken)
                 .orElseThrow(() -> new MatchNotFoundException("Match not found"));
@@ -129,16 +143,19 @@ public class MatchService {
         ensureReservationAcceptsPlayers(match.getReservation());
         ensurePositionAvailable(match, position);
 
-        return matchParticipantRepository.saveAndFlush(
+        matchParticipantRepository.saveAndFlush(
                 MatchParticipant.join(match, normalizeName(name), position, clock.instant())
         );
+
+        return findPublicMatch(publicToken);
     }
 
     /**
-     * Troca linha/goleiro (só o organizador, com a partida aberta), respeitando o limite.
+     * Troca linha/goleiro (só o organizador, com a partida aberta), respeitando o limite. A
+     * isenção do rateio volta ao padrão da nova posição, o que muda a cota de todos.
      */
     @Transactional
-    public MatchParticipant changeParticipantPosition(
+    public MatchDetails changeParticipantPosition(
             Long organizerId,
             Long reservationId,
             Long participantId,
@@ -150,15 +167,18 @@ public class MatchService {
 
         MatchParticipant participant = findParticipant(match, participantId);
 
-        if (participant.getPosition() == position) {
-            return participant;
+        if (participant.getPosition() != position) {
+            ensurePositionAvailable(match, position);
+            ensurePaymentAllowsExemption(
+                    participant,
+                    MatchParticipant.paysShareByDefault(position)
+            );
+
+            participant.changePosition(position);
+            matchParticipantRepository.saveAndFlush(participant);
         }
 
-        ensurePositionAvailable(match, position);
-
-        participant.changePosition(position);
-
-        return matchParticipantRepository.saveAndFlush(participant);
+        return findMyMatch(organizerId, reservationId);
     }
 
     @Transactional
@@ -169,6 +189,139 @@ public class MatchService {
 
         matchParticipantRepository.delete(findParticipant(match, participantId));
     }
+
+    // ---------- Rateio e pagamentos ----------
+
+    /**
+     * Inclui ou isenta um participante do rateio (só com a partida aberta).
+     */
+    @Transactional
+    public MatchDetails changeParticipantPaysShare(
+            Long organizerId,
+            Long reservationId,
+            Long participantId,
+            boolean paysShare
+    ) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+
+        ensureOpen(match);
+
+        MatchParticipant participant = findParticipant(match, participantId);
+
+        ensurePaymentAllowsExemption(participant, paysShare);
+
+        participant.changePaysShare(paysShare);
+        matchParticipantRepository.saveAndFlush(participant);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    /**
+     * Declara (ou desfaz) o pagamento de um participante, com a partida aberta ou fechada.
+     * Guarda a cota do momento, para sinalizar se ela mudar depois (reabertura).
+     */
+    @Transactional
+    public MatchDetails changeParticipantPayment(
+            Long organizerId,
+            Long reservationId,
+            Long participantId,
+            boolean paid
+    ) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+
+        ensureNotFinished(match);
+
+        MatchParticipant participant = findParticipant(match, participantId);
+
+        if (paid) {
+            if (!participant.isPaysShare()) {
+                throw new ParticipantPaymentConflictException(
+                        "Participant is exempt from the split"
+                );
+            }
+
+            participant.markPaid(details(match).shareOf(participant));
+        } else {
+            participant.unmarkPaid();
+        }
+
+        matchParticipantRepository.saveAndFlush(participant);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    /**
+     * Define a chave Pix exibida na página (vazia remove). Só exibição: o pagamento é externo.
+     */
+    @Transactional
+    public MatchDetails changePixKey(Long organizerId, Long reservationId, String pixKey) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+
+        ensureNotFinished(match);
+
+        match.changePixKey(pixKey == null || pixKey.isBlank() ? null : pixKey.trim());
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    // ---------- Fechar e reabrir ----------
+
+    /**
+     * Fecha a partida: congela a lista e as cotas e bloqueia inscrições. Sob o lock da partida,
+     * nenhuma inscrição concorrente entra depois do cálculo.
+     */
+    @Transactional
+    public MatchDetails closeMatch(Long organizerId, Long reservationId) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+
+        if (match.getStatus() != MatchStatus.OPEN) {
+            throw new MatchInvalidStateException("Match is not open");
+        }
+
+        MatchDetails current = details(match);
+
+        if (current.participants().stream().noneMatch(MatchParticipant::isPaysShare)) {
+            throw new MatchInvalidStateException("Match has no paying participants");
+        }
+
+        for (MatchParticipant participant : current.participants()) {
+            participant.freezeShare(current.shareOf(participant));
+        }
+
+        match.close(clock.instant());
+
+        matchParticipantRepository.saveAll(current.participants());
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    /**
+     * Reabre: as cotas voltam a ser calculadas na hora. Pagamentos declarados são mantidos; se a
+     * cota mudar, a visão do organizador sinaliza (decisão pendente nº 7, recomendação aceita).
+     */
+    @Transactional
+    public MatchDetails reopenMatch(Long organizerId, Long reservationId) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+
+        if (match.getStatus() != MatchStatus.CLOSED) {
+            throw new MatchInvalidStateException("Match is not closed");
+        }
+
+        List<MatchParticipant> participants =
+                matchParticipantRepository.findAllByMatchIdOrderByCreatedAtAscIdAsc(match.getId());
+
+        participants.forEach(MatchParticipant::unfreezeShare);
+        match.reopen();
+
+        matchParticipantRepository.saveAll(participants);
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    // ---------- Apoio ----------
 
     private Match findMyMatchForUpdate(Long organizerId, Long reservationId) {
         Long matchId = matchRepository
@@ -188,16 +341,67 @@ public class MatchService {
                 ));
     }
 
-    private MatchDetails withParticipants(Match match) {
-        return new MatchDetails(
-                match,
-                matchParticipantRepository.findAllByMatchIdOrderByCreatedAtAscIdAsc(match.getId())
-        );
+    /**
+     * Participantes em ordem de inscrição e a cota de cada um: congelada (fechada) ou calculada
+     * agora (aberta). Isentos têm cota zero.
+     */
+    private MatchDetails details(Match match) {
+        List<MatchParticipant> participants =
+                matchParticipantRepository.findAllByMatchIdOrderByCreatedAtAscIdAsc(match.getId());
+        Map<Long, BigDecimal> shares = new HashMap<>();
+
+        if (match.getStatus() == MatchStatus.OPEN) {
+            List<MatchParticipant> payers = participants.stream()
+                    .filter(MatchParticipant::isPaysShare)
+                    .toList();
+            Iterator<BigDecimal> payerShares = MatchSplitCalculator
+                    .split(match.getReservation().getPrice(), payers.size())
+                    .iterator();
+
+            for (MatchParticipant participant : participants) {
+                shares.put(
+                        participant.getId(),
+                        participant.isPaysShare() ? payerShares.next() : ZERO_SHARE
+                );
+            }
+        } else {
+            for (MatchParticipant participant : participants) {
+                shares.put(
+                        participant.getId(),
+                        participant.getShareAmount() != null
+                                ? participant.getShareAmount()
+                                : ZERO_SHARE
+                );
+            }
+        }
+
+        return new MatchDetails(match, participants, shares);
     }
 
     private static void ensureOpen(Match match) {
         if (match.getStatus() != MatchStatus.OPEN) {
             throw new MatchRegistrationNotAllowedException("Match is not open");
+        }
+    }
+
+    private static void ensureNotFinished(Match match) {
+        if (match.getStatus() == MatchStatus.FINISHED) {
+            throw new MatchInvalidStateException("Match is finished");
+        }
+    }
+
+    /**
+     * Isentar quem já declarou pagamento apagaria a declaração em silêncio: o organizador precisa
+     * desmarcar o pagamento antes.
+     */
+    private static void ensurePaymentAllowsExemption(
+            MatchParticipant participant,
+            boolean paysShare
+    ) {
+        if (!paysShare && participant.isPaid()) {
+            throw new ParticipantPaymentConflictException(
+                    "Participant has a declared payment"
+            );
         }
     }
 

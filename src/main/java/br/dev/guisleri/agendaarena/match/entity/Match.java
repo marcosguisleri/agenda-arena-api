@@ -32,6 +32,15 @@ public class Match {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /**
+     * Chave Pix só exibida na página; o pagamento acontece fora da plataforma.
+     */
+    @Column(name = "pix_key", length = 140)
+    private String pixKey;
+
+    @Column(name = "closed_at")
+    private Instant closedAt;
+
     protected Match() {
     }
 
@@ -44,6 +53,20 @@ public class Match {
         match.createdAt = createdAt;
 
         return match;
+    }
+
+    public void close(Instant closedAt) {
+        this.status = MatchStatus.CLOSED;
+        this.closedAt = closedAt;
+    }
+
+    public void reopen() {
+        this.status = MatchStatus.OPEN;
+        this.closedAt = null;
+    }
+
+    public void changePixKey(String pixKey) {
+        this.pixKey = pixKey;
     }
 
     public Long getId() {
@@ -64,5 +87,13 @@ public class Match {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getPixKey() {
+        return pixKey;
+    }
+
+    public Instant getClosedAt() {
+        return closedAt;
     }
 }

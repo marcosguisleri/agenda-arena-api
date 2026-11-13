@@ -5,9 +5,11 @@ import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowed
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
 import br.dev.guisleri.agendaarena.match.exception.FieldPlayerLimitReachedException;
 import br.dev.guisleri.agendaarena.match.exception.GoalkeeperLimitReachedException;
+import br.dev.guisleri.agendaarena.match.exception.MatchInvalidStateException;
 import br.dev.guisleri.agendaarena.match.exception.MatchNotFoundException;
 import br.dev.guisleri.agendaarena.match.exception.MatchParticipantNotFoundException;
 import br.dev.guisleri.agendaarena.match.exception.MatchRegistrationNotAllowedException;
+import br.dev.guisleri.agendaarena.match.exception.ParticipantPaymentConflictException;
 import br.dev.guisleri.agendaarena.match.exception.ReservationNotEligibleForMatchException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotAllowedException;
@@ -235,6 +237,28 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(FieldPlayerLimitReachedException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleFieldPlayerLimitReachedException(
             FieldPlayerLimitReachedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(MatchInvalidStateException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMatchInvalidStateException(
+            MatchInvalidStateException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(ParticipantPaymentConflictException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleParticipantPaymentConflictException(
+            ParticipantPaymentConflictException exception
     ) {
         return createErrorResponse(
                 HttpStatus.CONFLICT,

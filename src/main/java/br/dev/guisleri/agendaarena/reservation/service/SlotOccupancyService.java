@@ -4,6 +4,7 @@ import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.reservation.repository.RecurringReservationRepository;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
+import br.dev.guisleri.agendaarena.reservation.repository.SlotBlockRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -16,10 +17,16 @@ public class SlotOccupancyService {
 
     private final ReservationRepository reservationRepository;
     private final RecurringReservationRepository recurringReservationRepository;
+    private final SlotBlockRepository slotBlockRepository;
 
-    public SlotOccupancyService(ReservationRepository reservationRepository, RecurringReservationRepository recurringReservationRepository) {
+    public SlotOccupancyService(
+            ReservationRepository reservationRepository,
+            RecurringReservationRepository recurringReservationRepository,
+            SlotBlockRepository slotBlockRepository
+    ) {
         this.reservationRepository = reservationRepository;
         this.recurringReservationRepository = recurringReservationRepository;
+        this.slotBlockRepository = slotBlockRepository;
     }
 
     public boolean isOccupied(
@@ -27,12 +34,26 @@ public class SlotOccupancyService {
             LocalDate date
     ) {
         return reservationRepository
-                .existsByScheduleSlotIdAndReservationDateAndStatus(
+                .existsByScheduleSlotIdAndReservationDateAndStatusIn(
                         scheduleSlotId,
                         date,
-                        ReservationStatus.CONFIRMED
+                        ReservationStatus.OCCUPYING
                 ) || recurringReservationRepository
                 .existsCoveringDate(
+                        scheduleSlotId,
+                        date
+                ) || isBlocked(
+                        scheduleSlotId,
+                        date
+                );
+    }
+
+    public boolean isBlocked(
+            Long scheduleSlotId,
+            LocalDate date
+    ) {
+        return slotBlockRepository
+                .existsByScheduleSlotIdAndBlockDate(
                         scheduleSlotId,
                         date
                 );
@@ -44,10 +65,10 @@ public class SlotOccupancyService {
     ) {
         List<Reservation> reservations =
                 reservationRepository
-                        .findAllByScheduleSlotSportFieldIdAndReservationDateAndStatus(
+                        .findAllByScheduleSlotSportFieldIdAndReservationDateAndStatusIn(
                                 sportFieldId,
                                 date,
-                                ReservationStatus.CONFIRMED
+                                ReservationStatus.OCCUPYING
                         );
 
         Set<Long> occupiedSlotIds =
@@ -63,6 +84,13 @@ public class SlotOccupancyService {
                         );
 
         occupiedSlotIds.addAll(recurringReservationSlotIds);
+
+        occupiedSlotIds.addAll(
+                slotBlockRepository.findBlockedScheduleSlotIds(
+                        sportFieldId,
+                        date
+                )
+        );
 
         return occupiedSlotIds;
     }

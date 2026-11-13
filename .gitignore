@@ -37,3 +37,6 @@ build/
 
 ### Docker local data ###
 docker-data/
+
+### Claude Code (arquivos locais) ###
+.claude/settings.local.json

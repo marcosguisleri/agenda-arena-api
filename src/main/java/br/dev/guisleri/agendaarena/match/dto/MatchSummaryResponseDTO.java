@@ -6,7 +6,6 @@ import br.dev.guisleri.agendaarena.match.model.MatchStatus;
 import br.dev.guisleri.agendaarena.match.model.MatchTeam;
 import br.dev.guisleri.agendaarena.match.model.ShirtColor;
 import br.dev.guisleri.agendaarena.match.service.MatchDetails;
-import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.sportfield.entity.SportField;
 
 import java.math.BigDecimal;
@@ -53,8 +52,7 @@ public record MatchSummaryResponseDTO(
 
     public static MatchSummaryResponseDTO fromDetails(MatchDetails details) {
         Match match = details.match();
-        Reservation reservation = match.getReservation();
-        SportField sportField = reservation.getScheduleSlot().getSportField();
+        SportField sportField = match.getScheduleSlot().getSportField();
         List<MatchParticipant> participants = details.participants();
         List<MatchParticipant> pending = participants.stream()
                 .filter(participant -> participant.isPaysShare() && !participant.isPaid())
@@ -64,10 +62,10 @@ public record MatchSummaryResponseDTO(
                 match.getStatus(),
                 sportField.getEstablishment().getName(),
                 sportField.getName(),
-                reservation.getReservationDate(),
-                reservation.getStartTime(),
-                reservation.getEndTime(),
-                reservation.getPrice(),
+                match.getDate(),
+                match.getStartTime(),
+                match.getEndTime(),
+                match.getPrice(),
                 participants.size(),
                 participants.stream().filter(MatchParticipant::isPaysShare).count(),
                 participants.stream().filter(MatchParticipant::isPaid).count(),

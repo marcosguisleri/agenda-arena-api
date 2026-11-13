@@ -293,10 +293,17 @@ class MatchParticipantIntegrationTests {
 
         @Test
         void shouldRejectJoinAfterTheMatchStarted() throws Exception {
+            // A data vive na reserva e na cópia da partida (V18): move as duas.
+            LocalDate yesterday = LocalDate.now(clock).minusDays(1);
             jdbcTemplate.update(
                     "UPDATE reservations SET reservation_date = ? WHERE id = ?",
-                    LocalDate.now(clock).minusDays(1),
+                    yesterday,
                     reservationId
+            );
+            jdbcTemplate.update(
+                    "UPDATE matches SET match_date = ? WHERE public_token = ?",
+                    yesterday,
+                    token
             );
 
             join(token, "Joao", "FIELD")

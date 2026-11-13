@@ -187,6 +187,23 @@ class MatchIntegrationTests {
         }
 
         @Test
+        void shouldKeepCopiedPriceWhenSlotPriceChangesLater() throws Exception {
+            long reservationId = reserve(organizer, baseDate);
+            String token = tokenOf(createMatch(organizer, reservationId)
+                    .andExpect(status().isCreated()));
+
+            jdbcTemplate.update(
+                    "UPDATE schedule_slots SET price = 999.00 WHERE id = ?", scheduleSlot.getId());
+
+            mockMvc.perform(get("/matches/{token}", token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.price").value(150.00));
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT organizer_id FROM matches WHERE public_token = ?", Long.class, token))
+                    .isEqualTo(organizer.getId());
+        }
+
+        @Test
         void shouldReturnExistingMatchWhenCreatedTwice() throws Exception {
             long reservationId = reserve(organizer, baseDate);
             String firstToken = tokenOf(createMatch(organizer, reservationId)

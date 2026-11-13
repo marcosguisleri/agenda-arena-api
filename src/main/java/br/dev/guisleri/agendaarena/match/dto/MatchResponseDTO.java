@@ -33,9 +33,11 @@ public record MatchResponseDTO(
         String pixKey,
         Instant createdAt,
         Instant closedAt,
+        Instant teamsUpdatedAt,
         long fieldPlayerCount,
         long goalkeeperCount,
         long payingCount,
+        List<TeamResponseDTO> teams,
         List<ParticipantResponseDTO> participants
 ) {
     public static MatchResponseDTO fromDetails(MatchDetails details) {
@@ -58,9 +60,11 @@ public record MatchResponseDTO(
                 match.getPixKey(),
                 match.getCreatedAt(),
                 match.getClosedAt(),
+                match.getTeamsUpdatedAt(),
                 count(participants, PlayerPosition.FIELD),
                 count(participants, PlayerPosition.GOALKEEPER),
                 participants.stream().filter(MatchParticipant::isPaysShare).count(),
+                TeamResponseDTO.fromMatch(match),
                 participants.stream()
                         .map(participant -> ParticipantResponseDTO.fromEntity(
                                 participant,

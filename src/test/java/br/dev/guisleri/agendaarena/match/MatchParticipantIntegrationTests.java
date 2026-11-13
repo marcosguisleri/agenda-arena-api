@@ -304,10 +304,9 @@ class MatchParticipantIntegrationTests {
                     .andExpect(jsonPath("$.message").value("Match has already started"));
         }
 
-        @ParameterizedTest
-        @ValueSource(strings = {"CLOSED", "FINISHED"})
-        void shouldRejectJoinWhenMatchIsNotOpen(String matchStatus) throws Exception {
-            setMatchStatus(matchStatus);
+        @Test
+        void shouldRejectJoinWhenMatchIsClosed() throws Exception {
+            setMatchStatus("CLOSED");
 
             join(token, "Joao", "FIELD")
                     .andExpect(status().isConflict())

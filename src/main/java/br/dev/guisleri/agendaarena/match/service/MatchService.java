@@ -10,8 +10,11 @@ import br.dev.guisleri.agendaarena.match.exception.MatchParticipantNotFoundExcep
 import br.dev.guisleri.agendaarena.match.exception.MatchRegistrationNotAllowedException;
 import br.dev.guisleri.agendaarena.match.exception.ParticipantPaymentConflictException;
 import br.dev.guisleri.agendaarena.match.exception.ReservationNotEligibleForMatchException;
+import br.dev.guisleri.agendaarena.match.exception.TeamShirtColorConflictException;
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
+import br.dev.guisleri.agendaarena.match.model.MatchTeam;
 import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
+import br.dev.guisleri.agendaarena.match.model.ShirtColor;
 import br.dev.guisleri.agendaarena.match.repository.MatchParticipantRepository;
 import br.dev.guisleri.agendaarena.match.repository.MatchRepository;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
@@ -28,6 +31,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.random.RandomGenerator;
 
 @Service
 public class MatchService {
@@ -49,19 +53,22 @@ public class MatchService {
     private final ReservationService reservationService;
     private final MatchTokenGenerator matchTokenGenerator;
     private final Clock clock;
+    private final RandomGenerator randomGenerator;
 
     public MatchService(
             MatchRepository matchRepository,
             MatchParticipantRepository matchParticipantRepository,
             ReservationService reservationService,
             MatchTokenGenerator matchTokenGenerator,
-            Clock clock
+            Clock clock,
+            RandomGenerator randomGenerator
     ) {
         this.matchRepository = matchRepository;
         this.matchParticipantRepository = matchParticipantRepository;
         this.reservationService = reservationService;
         this.matchTokenGenerator = matchTokenGenerator;
         this.clock = clock;
+        this.randomGenerator = randomGenerator;
     }
 
     // ---------- Criação e leitura ----------
@@ -217,8 +224,8 @@ public class MatchService {
     }
 
     /**
-     * Declara (ou desfaz) o pagamento de um participante, com a partida aberta ou fechada.
-     * Guarda a cota do momento, para sinalizar se ela mudar depois (reabertura).
+     * Declara (ou desfaz) o pagamento de um participante, com a partida aberta ou fechada (também
+     * depois do jogo). Guarda a cota do momento, para sinalizar se ela mudar depois (reabertura).
      */
     @Transactional
     public MatchDetails changeParticipantPayment(
@@ -228,9 +235,6 @@ public class MatchService {
             boolean paid
     ) {
         Match match = findMyMatchForUpdate(organizerId, reservationId);
-
-        ensureNotFinished(match);
-
         MatchParticipant participant = findParticipant(match, participantId);
 
         if (paid) {
@@ -256,8 +260,6 @@ public class MatchService {
     @Transactional
     public MatchDetails changePixKey(Long organizerId, Long reservationId, String pixKey) {
         Match match = findMyMatchForUpdate(organizerId, reservationId);
-
-        ensureNotFinished(match);
 
         match.changePixKey(pixKey == null || pixKey.isBlank() ? null : pixKey.trim());
         matchRepository.saveAndFlush(match);
@@ -298,8 +300,9 @@ public class MatchService {
     }
 
     /**
-     * Reabre: as cotas voltam a ser calculadas na hora. Pagamentos declarados são mantidos; se a
-     * cota mudar, a visão do organizador sinaliza (decisão pendente nº 7, recomendação aceita).
+     * Reabre: as cotas voltam a ser calculadas na hora; os times são mantidos. Pagamentos
+     * declarados são mantidos; se a cota mudar, a visão do organizador sinaliza (decisão pendente
+     * nº 7, recomendação aceita).
      */
     @Transactional
     public MatchDetails reopenMatch(Long organizerId, Long reservationId) {
@@ -316,6 +319,94 @@ public class MatchService {
         match.reopen();
 
         matchParticipantRepository.saveAll(participants);
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    // ---------- Times ----------
+
+    /**
+     * Sorteia 2 times com todos os inscritos (partida aberta ou fechada). Refazer substitui a
+     * divisão anterior, inclusive a montada à mão.
+     */
+    @Transactional
+    public MatchDetails drawTeams(Long organizerId, Long reservationId) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+
+        List<MatchParticipant> participants =
+                matchParticipantRepository.findAllByMatchIdOrderByCreatedAtAscIdAsc(match.getId());
+
+        if (participants.size() < 2) {
+            throw new MatchInvalidStateException(
+                    "Match needs at least 2 participants to draw teams"
+            );
+        }
+
+        Map<Long, MatchTeam> teams = MatchTeamDrawer.draw(
+                participants.stream()
+                        .map(participant -> new MatchTeamDrawer.Candidate(
+                                participant.getId(),
+                                participant.getPosition()
+                        ))
+                        .toList(),
+                randomGenerator
+        );
+
+        participants.forEach(participant ->
+                participant.assignTeam(teams.get(participant.getId()))
+        );
+        match.markTeamsUpdated(clock.instant());
+
+        matchParticipantRepository.saveAll(participants);
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    /**
+     * Montagem manual: move o participante para o time A, B ou deixa sem time ({@code null}).
+     * Livre, sem exigir equilíbrio; vale com a partida aberta ou fechada.
+     */
+    @Transactional
+    public MatchDetails changeParticipantTeam(
+            Long organizerId,
+            Long reservationId,
+            Long participantId,
+            MatchTeam team
+    ) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        MatchParticipant participant = findParticipant(match, participantId);
+
+        participant.assignTeam(team);
+        match.markTeamsUpdated(clock.instant());
+
+        matchParticipantRepository.saveAndFlush(participant);
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, reservationId);
+    }
+
+    /**
+     * Nome e cor de camiseta de um time. A cor é opcional, mas os dois times não podem ter a
+     * mesma (o banco também barra: {@code chk_matches_shirt_colors_distinct}).
+     */
+    @Transactional
+    public MatchDetails changeTeamSettings(
+            Long organizerId,
+            Long reservationId,
+            MatchTeam team,
+            String name,
+            ShirtColor shirtColor
+    ) {
+        Match match = findMyMatchForUpdate(organizerId, reservationId);
+        MatchTeam otherTeam = team == MatchTeam.A ? MatchTeam.B : MatchTeam.A;
+
+        if (shirtColor != null && shirtColor == match.getTeamShirtColor(otherTeam)) {
+            throw new TeamShirtColorConflictException("Teams must have different shirt colors");
+        }
+
+        match.changeTeam(team, normalizeName(name), shirtColor);
         matchRepository.saveAndFlush(match);
 
         return findMyMatch(organizerId, reservationId);
@@ -381,12 +472,6 @@ public class MatchService {
     private static void ensureOpen(Match match) {
         if (match.getStatus() != MatchStatus.OPEN) {
             throw new MatchRegistrationNotAllowedException("Match is not open");
-        }
-    }
-
-    private static void ensureNotFinished(Match match) {
-        if (match.getStatus() == MatchStatus.FINISHED) {
-            throw new MatchInvalidStateException("Match is finished");
         }
     }
 

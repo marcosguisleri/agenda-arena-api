@@ -11,6 +11,7 @@ import br.dev.guisleri.agendaarena.match.exception.MatchParticipantNotFoundExcep
 import br.dev.guisleri.agendaarena.match.exception.MatchRegistrationNotAllowedException;
 import br.dev.guisleri.agendaarena.match.exception.ParticipantPaymentConflictException;
 import br.dev.guisleri.agendaarena.match.exception.ReservationNotEligibleForMatchException;
+import br.dev.guisleri.agendaarena.match.exception.TeamShirtColorConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotAllowedException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotFoundException;
@@ -259,6 +260,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ParticipantPaymentConflictException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleParticipantPaymentConflictException(
             ParticipantPaymentConflictException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(TeamShirtColorConflictException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleTeamShirtColorConflictException(
+            TeamShirtColorConflictException exception
     ) {
         return createErrorResponse(
                 HttpStatus.CONFLICT,

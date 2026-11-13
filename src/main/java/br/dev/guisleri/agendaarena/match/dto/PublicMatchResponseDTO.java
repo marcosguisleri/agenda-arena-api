@@ -10,6 +10,7 @@ import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.sportfield.entity.SportField;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -28,9 +29,11 @@ public record PublicMatchResponseDTO(
         LocalTime endTime,
         BigDecimal price,
         String pixKey,
+        Instant teamsUpdatedAt,
         long fieldPlayerCount,
         long goalkeeperCount,
         long payingCount,
+        List<TeamResponseDTO> teams,
         List<PublicParticipantResponseDTO> participants
 ) {
     public static PublicMatchResponseDTO fromDetails(MatchDetails details) {
@@ -49,9 +52,11 @@ public record PublicMatchResponseDTO(
                 reservation.getEndTime(),
                 reservation.getPrice(),
                 match.getPixKey(),
+                match.getTeamsUpdatedAt(),
                 MatchResponseDTO.count(participants, PlayerPosition.FIELD),
                 MatchResponseDTO.count(participants, PlayerPosition.GOALKEEPER),
                 participants.stream().filter(MatchParticipant::isPaysShare).count(),
+                TeamResponseDTO.fromMatch(match),
                 participants.stream()
                         .map(participant -> PublicParticipantResponseDTO.fromEntity(
                                 participant,

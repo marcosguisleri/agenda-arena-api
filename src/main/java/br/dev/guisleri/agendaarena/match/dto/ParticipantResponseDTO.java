@@ -1,6 +1,7 @@
 package br.dev.guisleri.agendaarena.match.dto;
 
 import br.dev.guisleri.agendaarena.match.entity.MatchParticipant;
+import br.dev.guisleri.agendaarena.match.model.MatchTeam;
 import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
 
 import java.math.BigDecimal;
@@ -21,7 +22,8 @@ public record ParticipantResponseDTO(
         BigDecimal shareAmount,
         boolean paid,
         BigDecimal paidAmount,
-        boolean amountChangedAfterPayment
+        boolean amountChangedAfterPayment,
+        MatchTeam team
 ) {
     public static ParticipantResponseDTO fromEntity(
             MatchParticipant participant,
@@ -37,7 +39,8 @@ public record ParticipantResponseDTO(
                 participant.isPaid(),
                 participant.getPaidAmount(),
                 participant.isPaid()
-                        && participant.getPaidAmount().compareTo(shareAmount) != 0
+                        && participant.getPaidAmount().compareTo(shareAmount) != 0,
+                participant.getTeam()
         );
     }
 }

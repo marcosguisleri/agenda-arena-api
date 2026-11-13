@@ -1,6 +1,7 @@
 package br.dev.guisleri.agendaarena.match.controller;
 
 import br.dev.guisleri.agendaarena.match.dto.JoinMatchRequestDTO;
+import br.dev.guisleri.agendaarena.match.dto.MatchSummaryResponseDTO;
 import br.dev.guisleri.agendaarena.match.dto.PublicMatchResponseDTO;
 import br.dev.guisleri.agendaarena.match.service.MatchService;
 import jakarta.validation.Valid;
@@ -30,6 +31,13 @@ public class PublicMatchController {
     public ResponseEntity<PublicMatchResponseDTO> findMatch(@PathVariable String publicToken) {
         return ResponseEntity.ok(
                 PublicMatchResponseDTO.fromDetails(matchService.findPublicMatch(publicToken))
+        );
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<MatchSummaryResponseDTO> findSummary(@PathVariable String publicToken) {
+        return ResponseEntity.ok(
+                MatchSummaryResponseDTO.fromDetails(matchService.findPublicMatch(publicToken))
         );
     }
 

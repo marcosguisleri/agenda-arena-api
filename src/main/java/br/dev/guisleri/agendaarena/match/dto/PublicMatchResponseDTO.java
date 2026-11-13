@@ -27,8 +27,10 @@ public record PublicMatchResponseDTO(
         LocalTime startTime,
         LocalTime endTime,
         BigDecimal price,
+        String pixKey,
         long fieldPlayerCount,
         long goalkeeperCount,
+        long payingCount,
         List<PublicParticipantResponseDTO> participants
 ) {
     public static PublicMatchResponseDTO fromDetails(MatchDetails details) {
@@ -46,9 +48,16 @@ public record PublicMatchResponseDTO(
                 reservation.getStartTime(),
                 reservation.getEndTime(),
                 reservation.getPrice(),
+                match.getPixKey(),
                 MatchResponseDTO.count(participants, PlayerPosition.FIELD),
                 MatchResponseDTO.count(participants, PlayerPosition.GOALKEEPER),
-                participants.stream().map(PublicParticipantResponseDTO::fromEntity).toList()
+                participants.stream().filter(MatchParticipant::isPaysShare).count(),
+                participants.stream()
+                        .map(participant -> PublicParticipantResponseDTO.fromEntity(
+                                participant,
+                                details.shareOf(participant)
+                        ))
+                        .toList()
         );
     }
 }

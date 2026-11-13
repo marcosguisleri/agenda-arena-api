@@ -169,9 +169,10 @@ class MatchParticipantIntegrationTests {
         void shouldLetAnonymousGuestJoinAsFieldPlayer() throws Exception {
             join(token, "Joao", "FIELD")
                     .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.name").value("Joao"))
-                    .andExpect(jsonPath("$.position").value("FIELD"))
-                    .andExpect(jsonPath("$.id").doesNotExist());
+                    .andExpect(jsonPath("$.participants.length()").value(1))
+                    .andExpect(jsonPath("$.participants[0].name").value("Joao"))
+                    .andExpect(jsonPath("$.participants[0].position").value("FIELD"))
+                    .andExpect(jsonPath("$.participants[0].id").doesNotExist());
 
             mockMvc.perform(get("/matches/{token}", token))
                     .andExpect(status().isOk())
@@ -210,7 +211,7 @@ class MatchParticipantIntegrationTests {
         void shouldNormalizeName() throws Exception {
             join(token, "   Joao    da   Silva  ", "FIELD")
                     .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.name").value("Joao da Silva"));
+                    .andExpect(jsonPath("$.participants[0].name").value("Joao da Silva"));
         }
 
         @ParameterizedTest
@@ -324,12 +325,13 @@ class MatchParticipantIntegrationTests {
 
             changePosition(organizer, participantId, "GOALKEEPER")
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(participantId))
-                    .andExpect(jsonPath("$.position").value("GOALKEEPER"));
+                    .andExpect(jsonPath("$.participants[0].id").value(participantId))
+                    .andExpect(jsonPath("$.participants[0].position").value("GOALKEEPER"))
+                    .andExpect(jsonPath("$.goalkeeperCount").value(1));
 
             changePosition(organizer, participantId, "FIELD")
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.position").value("FIELD"));
+                    .andExpect(jsonPath("$.participants[0].position").value("FIELD"));
         }
 
         @Test
@@ -549,10 +551,11 @@ class MatchParticipantIntegrationTests {
 
         for (int i = 0; i < quantity; i++) {
             jdbcTemplate.update("""
-                    INSERT INTO match_participants (match_id, name, position, created_at)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO match_participants
+                        (match_id, name, position, created_at, pays_share)
+                    VALUES (?, ?, ?, ?, ?)
                     """, matchId, position.name() + " " + i, position.name(),
-                    Timestamp.from(Instant.now(clock)));
+                    Timestamp.from(Instant.now(clock)), position == PlayerPosition.FIELD);
         }
     }
 

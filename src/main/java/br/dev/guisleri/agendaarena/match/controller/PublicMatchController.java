@@ -2,7 +2,6 @@ package br.dev.guisleri.agendaarena.match.controller;
 
 import br.dev.guisleri.agendaarena.match.dto.JoinMatchRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.PublicMatchResponseDTO;
-import br.dev.guisleri.agendaarena.match.dto.PublicParticipantResponseDTO;
 import br.dev.guisleri.agendaarena.match.service.MatchService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -34,14 +33,17 @@ public class PublicMatchController {
         );
     }
 
+    /**
+     * 201 com a página atualizada (a cota de todos muda a cada inscrição).
+     */
     @PostMapping("/participants")
-    public ResponseEntity<PublicParticipantResponseDTO> joinMatch(
+    public ResponseEntity<PublicMatchResponseDTO> joinMatch(
             @PathVariable String publicToken,
             @Valid @RequestBody JoinMatchRequestDTO request
     ) {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(PublicParticipantResponseDTO.fromEntity(
+                .body(PublicMatchResponseDTO.fromDetails(
                         matchService.joinMatch(publicToken, request.name(), request.position())
                 ));
     }

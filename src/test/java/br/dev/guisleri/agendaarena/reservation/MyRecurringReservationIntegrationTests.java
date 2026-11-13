@@ -295,6 +295,17 @@ class MyRecurringReservationIntegrationTests {
         }
 
         @Test
+        void shouldRejectNonNumericWeeksWithTheStandardErrorBody() throws Exception {
+            RecurringReservation series = series(eveningSlot, organizer, TODAY, null);
+
+            asOrganizer(organizer, get(occurrencesPath(series)).param("weeks", "abc"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.error").value("Bad Request"))
+                    .andExpect(jsonPath("$.message").value("Invalid value for parameter 'weeks'"));
+        }
+
+        @Test
         void shouldHideSeriesOfAnotherOrganizer() throws Exception {
             RecurringReservation series = series(eveningSlot, otherOrganizer, TODAY, null);
 

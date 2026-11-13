@@ -7,6 +7,7 @@ import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentAdminRe
 import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentRepository;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
+import br.dev.guisleri.agendaarena.reservation.service.ReservationService;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
 import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.sportfield.entity.SportField;
@@ -27,6 +28,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -41,6 +43,7 @@ import java.time.LocalTime;
 import java.time.temporal.TemporalAdjusters;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -80,6 +83,8 @@ class MyReservationIntegrationTests {
     private ScheduleSlotRepository scheduleSlotRepository;
     @Autowired
     private ReservationRepository reservationRepository;
+    @Autowired
+    private ReservationService reservationService;
 
     private MockMvc mockMvc;
     private LocalDate baseDate;
@@ -191,6 +196,16 @@ class MyReservationIntegrationTests {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/me/reservations/{id}/cancellation-request", reservationId))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldRequireCallerTransactionToLockReservationSlot() throws Exception {
+        long reservationId = reserve(organizer, baseDate);
+
+        // Fora de transação o lock do slot seria liberado no retorno: o método recusa (MANDATORY).
+        assertThatThrownBy(() -> reservationService.findOrganizerReservationForUpdate(
+                organizer.getId(), reservationId))
+                .isInstanceOf(IllegalTransactionStateException.class);
     }
 
     // ---------- Pedido de cancelamento ----------

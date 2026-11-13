@@ -395,6 +395,45 @@ class MatchTeamsIntegrationTests {
         }
 
         @Test
+        void shouldSwapShirtColorsInOneCall() throws Exception {
+            teamSettings("A", "\"Vermelho\"", "\"RED\"").andExpect(status().isOk());
+            teamSettings("B", "\"Azul\"", "\"BLUE\"").andExpect(status().isOk());
+
+            bothTeams("{\"name\": \"Azul\", \"shirtColor\": \"BLUE\"}",
+                    "{\"name\": \"Vermelho\", \"shirtColor\": \"RED\"}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.teams[0].name").value("Azul"))
+                    .andExpect(jsonPath("$.teams[0].shirtColor").value("BLUE"))
+                    .andExpect(jsonPath("$.teams[1].name").value("Vermelho"))
+                    .andExpect(jsonPath("$.teams[1].shirtColor").value("RED"));
+        }
+
+        @Test
+        void shouldRejectSameShirtColorWhenSettingBothTeams() throws Exception {
+            bothTeams("{\"name\": \"Um\", \"shirtColor\": \"RED\"}",
+                    "{\"name\": \"Dois\", \"shirtColor\": \"RED\"}")
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message")
+                            .value("Teams must have different shirt colors"));
+
+            myMatch().andExpect(jsonPath("$.teams[0].name").value("Time A"));
+        }
+
+        @Test
+        void shouldValidateBothTeamsPayload() throws Exception {
+            mockMvc.perform(put(matchPath() + "/teams")
+                            .header("Authorization", bearer(organizer))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"teamA\": {\"name\": \"Um\"}}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.teamB").exists());
+
+            bothTeams("{\"name\": \" \"}", "{\"name\": \"Dois\"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors['teamA.name']").exists());
+        }
+
+        @Test
         void shouldValidateTeamSettings() throws Exception {
             teamSettings("A", "\"   \"", "\"BLUE\"")
                     .andExpect(status().isBadRequest())
@@ -668,6 +707,13 @@ class MatchTeamsIntegrationTests {
                 .header("Authorization", bearer(organizer))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\": " + nameJson + ", \"shirtColor\": " + colorJson + "}"));
+    }
+
+    private ResultActions bothTeams(String teamAJson, String teamBJson) throws Exception {
+        return mockMvc.perform(put(matchPath() + "/teams")
+                .header("Authorization", bearer(organizer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"teamA\": " + teamAJson + ", \"teamB\": " + teamBJson + "}"));
     }
 
     private ResultActions payment(long participantId) throws Exception {

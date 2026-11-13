@@ -68,7 +68,8 @@ public record MatchResponseDTO(
                 participants.stream()
                         .map(participant -> ParticipantResponseDTO.fromEntity(
                                 participant,
-                                details.shareOf(participant)
+                                details.shareOf(participant),
+                                match.getStatus()
                         ))
                         .toList()
         );

@@ -3,7 +3,7 @@ package br.dev.guisleri.agendaarena.match;
 import br.dev.guisleri.agendaarena.auth.service.JwtTokenService;
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentRepository;
-import br.dev.guisleri.agendaarena.match.exception.MatchRegistrationNotAllowedException;
+import br.dev.guisleri.agendaarena.match.exception.MatchInvalidStateException;
 import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
 import br.dev.guisleri.agendaarena.match.service.MatchService;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
@@ -56,6 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -296,6 +297,37 @@ class MatchClosingIntegrationTests {
         }
 
         @Test
+        void shouldNotFlagChangedAmountWhileOpen() throws Exception {
+            long participantId = joinAndGetId("Joao", "FIELD");
+            payment(participantId, true).andExpect(status().isOk());
+
+            join("Pedro", "FIELD")
+                    .andExpect(status().isCreated());
+
+            myMatch()
+                    .andExpect(jsonPath("$.participants[0].paidAmount").value(150.00))
+                    .andExpect(jsonPath("$.participants[0].shareAmount").value(75.00))
+                    .andExpect(jsonPath("$.participants[0].amountChangedAfterPayment")
+                            .value(false));
+        }
+
+        @Test
+        void shouldNotRemoveParticipantWithDeclaredPayment() throws Exception {
+            long participantId = joinAndGetId("Joao", "FIELD");
+            payment(participantId, true).andExpect(status().isOk());
+
+            mockMvc.perform(delete(participantPath(participantId))
+                            .header("Authorization", bearer(organizer)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Participant has a declared payment"));
+
+            payment(participantId, false).andExpect(status().isOk());
+            mockMvc.perform(delete(participantPath(participantId))
+                            .header("Authorization", bearer(organizer)))
+                    .andExpect(status().isNoContent());
+        }
+
+        @Test
         void shouldRejectMissingPaidFlag() throws Exception {
             long participantId = joinAndGetId("Joao", "FIELD");
 
@@ -452,12 +484,22 @@ class MatchClosingIntegrationTests {
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.participants[0].shareAmount").value(50.00));
 
+            // Aberta: a cota muda a cada inscrição, então não há alerta.
             myMatch()
                     .andExpect(jsonPath("$.participants[0].paid").value(true))
                     .andExpect(jsonPath("$.participants[0].paidAmount").value(75.00))
                     .andExpect(jsonPath("$.participants[0].shareAmount").value(50.00))
                     .andExpect(jsonPath("$.participants[0].amountChangedAfterPayment")
-                            .value(true));
+                            .value(false));
+
+            // Fechada de novo: a cota congelada difere do valor pago, e o alerta aparece.
+            close()
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.participants[0].shareAmount").value(50.00))
+                    .andExpect(jsonPath("$.participants[0].amountChangedAfterPayment")
+                            .value(true))
+                    .andExpect(jsonPath("$.participants[1].amountChangedAfterPayment")
+                            .value(false));
         }
 
         @Test
@@ -465,6 +507,54 @@ class MatchClosingIntegrationTests {
             reopen()
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message").value("Match is not closed"));
+        }
+    }
+
+    @Nested
+    @DisplayName("Cancelled reservation")
+    class CancelledReservation {
+
+        @Test
+        void shouldBlockOrganizerChangesButKeepReadingAfterCancellation() throws Exception {
+            long participantId = joinAndGetId("Joao", "FIELD");
+            join("Pedro", "FIELD");
+            jdbcTemplate.update(
+                    "UPDATE reservations SET status = 'CANCELLED' WHERE id = ?", reservationId);
+
+            close()
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Reservation was cancelled"));
+            payment(participantId, true)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Reservation was cancelled"));
+            pixKey("\"chave\"")
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Reservation was cancelled"));
+            paysShare(participantId, false).andExpect(status().isConflict());
+            mockMvc.perform(post(matchPath() + "/team-draw")
+                            .header("Authorization", bearer(organizer)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Reservation was cancelled"));
+
+            myMatch()
+                    .andExpect(jsonPath("$.status").value("OPEN"))
+                    .andExpect(jsonPath("$.reservationStatus").value("CANCELLED"))
+                    .andExpect(jsonPath("$.pixKey").value(nullValue()))
+                    .andExpect(jsonPath("$.participants[0].paid").value(false));
+            mockMvc.perform(get("/matches/{token}/summary", token))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        void shouldBlockReopeningAfterCancellation() throws Exception {
+            join("Joao", "FIELD");
+            close().andExpect(status().isOk());
+            jdbcTemplate.update(
+                    "UPDATE reservations SET status = 'CANCELLED' WHERE id = ?", reservationId);
+
+            reopen()
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("Reservation was cancelled"));
         }
     }
 
@@ -558,7 +648,7 @@ class MatchClosingIntegrationTests {
             assertThatThrownBy(() ->
                     joinAttempt.get(CONCURRENCY_TIMEOUT.toSeconds(), TimeUnit.SECONDS))
                     .isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(MatchRegistrationNotAllowedException.class);
+                    .hasCauseInstanceOf(MatchInvalidStateException.class);
 
             List<BigDecimal> shares = frozenShares();
             assertThat(shares).hasSize(2);

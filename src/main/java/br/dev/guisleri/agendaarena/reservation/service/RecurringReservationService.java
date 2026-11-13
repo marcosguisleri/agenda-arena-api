@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.reservation.service;
 
+import br.dev.guisleri.agendaarena.match.repository.MatchRepository;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservationRelease;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationConflictException;
@@ -22,6 +23,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
+import java.util.List;
 
 @Service
 public class RecurringReservationService {
@@ -32,6 +34,7 @@ public class RecurringReservationService {
     private final UserService userService;
     private final RecurringReservationReleaseRepository recurringReservationReleaseRepository;
     private final SlotBlockRepository slotBlockRepository;
+    private final MatchRepository matchRepository;
     private final Clock clock;
 
     public RecurringReservationService(
@@ -41,6 +44,7 @@ public class RecurringReservationService {
             UserService userService,
             RecurringReservationReleaseRepository recurringReservationReleaseRepository,
             SlotBlockRepository slotBlockRepository,
+            MatchRepository matchRepository,
             Clock clock
     ) {
         this.reservationRepository = reservationRepository;
@@ -49,6 +53,7 @@ public class RecurringReservationService {
         this.userService = userService;
         this.recurringReservationReleaseRepository = recurringReservationReleaseRepository;
         this.slotBlockRepository = slotBlockRepository;
+        this.matchRepository = matchRepository;
         this.clock = clock;
     }
 
@@ -202,6 +207,86 @@ public class RecurringReservationService {
                         Instant.now(clock)
                 )
         );
+    }
+
+    /**
+     * Séries do organizador (só as dele; o id vem do token).
+     */
+    @Transactional(readOnly = true)
+    public List<RecurringReservation> findOrganizerRecurringReservations(Long organizerId) {
+        return recurringReservationRepository
+                .findAllByOrganizerIdOrderByStartDateDescIdDesc(organizerId);
+    }
+
+    /**
+     * Série de outro organizador (ou sem organizador) é tratada como inexistente (404), para não
+     * revelar que existe.
+     */
+    @Transactional(readOnly = true)
+    public RecurringReservation findOrganizerRecurringReservation(
+            Long organizerId,
+            Long recurringReservationId
+    ) {
+        return recurringReservationRepository
+                .findByIdAndOrganizerId(recurringReservationId, organizerId)
+                .orElseThrow(() -> new RecurringReservationNotFoundException(
+                        "Recurring reservation with id " + recurringReservationId + " not found"
+                ));
+    }
+
+    /**
+     * O administrador vincula (ou troca) o organizador de uma série. Mesmo protocolo das demais
+     * operações: lock do slot primeiro, validações depois. Trocar o organizador de uma série que
+     * já tem partida é conflito (409): a partida guarda o dono copiado e ficaria divergente.
+     */
+    @Transactional
+    public RecurringReservation linkOrganizer(
+            Long establishmentId,
+            Long sportFieldId,
+            Long scheduleSlotId,
+            Long recurringReservationId,
+            Long organizerId
+    ) {
+        scheduleSlotService.findBookableScheduleSlotForUpdate(
+                establishmentId,
+                sportFieldId,
+                scheduleSlotId
+        );
+
+        RecurringReservation recurringReservation =
+                recurringReservationRepository
+                        .findByIdAndScheduleSlotId(recurringReservationId, scheduleSlotId)
+                        .orElseThrow(() ->
+                                new RecurringReservationNotFoundException(
+                                        "Recurring reservation with id "
+                                                + recurringReservationId
+                                                + " not found for schedule slot "
+                                                + scheduleSlotId
+                                )
+                        );
+
+        User organizer = userService.findUserById(organizerId);
+
+        if (!organizer.isActive()) {
+            throw new RecurringReservationNotAllowedException("Organizer is not active");
+        }
+
+        User current = recurringReservation.getOrganizer();
+
+        if (current != null && current.getId().equals(organizer.getId())) {
+            return recurringReservation;
+        }
+
+        if (current != null
+                && matchRepository.existsByRecurringReservationId(recurringReservationId)) {
+            throw new RecurringReservationConflictException(
+                    "The organizer cannot be changed because the recurring reservation already has matches."
+            );
+        }
+
+        recurringReservation.linkOrganizer(organizer);
+
+        return recurringReservationRepository.saveAndFlush(recurringReservation);
     }
 
     private void validateOccurrenceCanBeReleased(

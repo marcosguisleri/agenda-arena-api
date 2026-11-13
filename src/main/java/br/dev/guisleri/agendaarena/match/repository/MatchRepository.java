@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 public interface MatchRepository extends JpaRepository<Match, Long> {
@@ -57,4 +59,15 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from Match m where m.publicToken = :publicToken")
     Optional<Match> findByPublicTokenForUpdate(@Param("publicToken") String publicToken);
+
+    /**
+     * Partidas das ocorrências de uma série num intervalo de datas.
+     */
+    List<Match> findAllByRecurringReservationIdAndOccurrenceDateBetween(
+            Long recurringReservationId,
+            LocalDate fromDate,
+            LocalDate toDate
+    );
+
+    boolean existsByRecurringReservationId(Long recurringReservationId);
 }

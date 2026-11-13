@@ -23,4 +23,19 @@ public interface RecurringReservationReleaseRepository extends JpaRepository<Rec
             @Param("recurringReservationIds") Collection<Long> recurringReservationIds,
             @Param("occurrenceDate") LocalDate occurrenceDate
     );
+
+    /**
+     * Datas liberadas de uma série num intervalo (listagem de ocorrências, sem N+1).
+     */
+    @Query("""
+        SELECT rel.occurrenceDate
+        FROM RecurringReservationRelease rel
+        WHERE rel.recurringReservation.id = :recurringReservationId
+          AND rel.occurrenceDate BETWEEN :fromDate AND :toDate
+        """)
+    List<LocalDate> findReleasedDates(
+            @Param("recurringReservationId") Long recurringReservationId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate
+    );
 }

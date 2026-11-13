@@ -5,6 +5,7 @@ import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.entity.EstablishmentAdmin;
 import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentAdminRepository;
 import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentRepository;
+import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.repository.RecurringReservationRepository;
 import br.dev.guisleri.agendaarena.reservation.repository.ReservationRepository;
 import br.dev.guisleri.agendaarena.reservation.repository.SlotBlockRepository;
@@ -170,6 +171,7 @@ class EstablishmentAuthorizationIntegrationTests {
         assertThat(totalRecords()).isEqualTo(before);
         assertThat(reservationRepository.findById(targetB.reservationId()).orElseThrow()
                 .getStatus().name()).isEqualTo("CONFIRMED");
+        assertRecurringReservationHasNoOrganizer(targetB);
     }
 
     @ParameterizedTest(name = "{0}: caminho do estabelecimento A com quadra de B recebe 404")
@@ -180,7 +182,9 @@ class EstablishmentAuthorizationIntegrationTests {
                 targetA.establishmentId(),
                 targetB.sportFieldId(),
                 targetB.scheduleSlotId(),
-                targetB.reservationId()
+                targetB.reservationId(),
+                targetB.recurringReservationId(),
+                targetB.organizerId()
         );
         long before = totalRecords();
 
@@ -205,6 +209,7 @@ class EstablishmentAuthorizationIntegrationTests {
                 .andExpect(jsonPath("$.error").value("Forbidden"));
 
         assertThat(totalRecords()).isEqualTo(before);
+        assertRecurringReservationHasNoOrganizer(targetA);
     }
 
     @ParameterizedTest(name = "{0}: anônimo recebe 401")
@@ -217,6 +222,7 @@ class EstablishmentAuthorizationIntegrationTests {
                 .andExpect(jsonPath("$.status").value(401));
 
         assertThat(totalRecords()).isEqualTo(before);
+        assertRecurringReservationHasNoOrganizer(targetA);
     }
 
     // ---------- Rotas só da plataforma ----------
@@ -483,6 +489,11 @@ class EstablishmentAuthorizationIntegrationTests {
                                         {"responsibleName":"Turma","responsiblePhone":"11999991234",
                                          "startDate":"%s","endDate":"%s"}
                                         """.formatted(d.plusDays(7), d.plusDays(7)))),
+                Endpoint.of("PATCH recurring-reservations link organizer", 200, (t, d) ->
+                        patch(slotPath(t) + "/recurring-reservations/{id}",
+                                t.recurringReservationId())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"organizerId\":%d}".formatted(t.organizerId()))),
                 Endpoint.of("GET reservation", 200, (t, d) ->
                         get(slotPath(t) + "/reservations/{id}", t.reservationId())),
                 Endpoint.of("POST reservation cancel", 200, (t, d) ->
@@ -577,12 +588,39 @@ class EstablishmentAuthorizationIntegrationTests {
 
         Number reservationId = JsonPath.read(response, "$.id");
 
+        // Série sem organizador, longe das datas usadas pelas outras rotas (d, d+7, d+14, d+21).
+        RecurringReservation recurring = recurringReservationRepository.save(
+                new RecurringReservation(
+                        slot,
+                        null,
+                        "Turma",
+                        "11999991234",
+                        baseDate.plusDays(35),
+                        baseDate.plusDays(35)
+                )
+        );
+
         return new Target(
                 establishment.getId(),
                 sportField.getId(),
                 slot.getId(),
-                reservationId.longValue()
+                reservationId.longValue(),
+                recurring.getId(),
+                organizer.getId()
         );
+    }
+
+    /**
+     * Efeito colateral do PATCH de vínculo: a série de cada alvo nasce sem organizador.
+     */
+    private void assertRecurringReservationHasNoOrganizer(Target target) {
+        Long organizerId = jdbcTemplate.queryForObject(
+                "SELECT organizer_id FROM recurring_reservations WHERE id = ?",
+                Long.class,
+                target.recurringReservationId()
+        );
+
+        assertThat(organizerId).isNull();
     }
 
     private long totalRecords() {
@@ -597,7 +635,9 @@ class EstablishmentAuthorizationIntegrationTests {
             Long establishmentId,
             Long sportFieldId,
             Long scheduleSlotId,
-            Long reservationId
+            Long reservationId,
+            Long recurringReservationId,
+            Long organizerId
     ) {
     }
 

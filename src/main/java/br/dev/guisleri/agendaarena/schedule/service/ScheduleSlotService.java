@@ -142,6 +142,32 @@ public class ScheduleSlotService {
 
     }
 
+    /**
+     * Busca o slot aplicando lock pessimista, sem exigir que ele esteja ativo.
+     * Serve para operações que não criam ocupação (ex.: cancelar uma reserva), que
+     * precisam continuar possíveis mesmo depois de o slot ser desativado.
+     */
+    public ScheduleSlot findScheduleSlotForUpdate(
+            Long establishmentId,
+            Long sportFieldId,
+            Long scheduleSlotId
+    ) {
+        sportFieldService.findSportFieldById(
+                establishmentId,
+                sportFieldId
+        );
+
+        return scheduleSlotRepository
+                .findByIdAndSportFieldIdForUpdate(
+                        scheduleSlotId,
+                        sportFieldId
+                )
+                .orElseThrow(() -> new ScheduleSlotNotFoundException(
+                        "Schedule slot with id " + scheduleSlotId
+                                + " not found for sport field " + sportFieldId
+                ));
+    }
+
     public ScheduleSlot findBookableScheduleSlot(
             Long establishmentId,
             Long sportFieldId,

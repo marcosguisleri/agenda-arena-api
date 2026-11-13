@@ -1,10 +1,17 @@
 package br.dev.guisleri.agendaarena.common.exception;
 
+import br.dev.guisleri.agendaarena.auth.exception.InvalidCredentialsException;
 import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotAllowedException;
+import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotFoundException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationAlreadyExistsException;
+import br.dev.guisleri.agendaarena.reservation.exception.ReservationInvalidStateException;
+import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotFoundException;
+import br.dev.guisleri.agendaarena.reservation.exception.SlotBlockConflictException;
+import br.dev.guisleri.agendaarena.reservation.exception.SlotBlockNotAllowedException;
+import br.dev.guisleri.agendaarena.reservation.exception.SlotBlockNotFoundException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotAllowedException;
 import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotAlreadyExistsException;
 import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotNotAllowedException;
@@ -19,6 +26,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -151,6 +160,28 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(ReservationNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleReservationNotFoundException(
+            ReservationNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(ReservationInvalidStateException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleReservationInvalidStateException(
+            ReservationInvalidStateException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
     @ExceptionHandler(ReservationNotAllowedException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleReservationNotAllowedException(
             ReservationNotAllowedException exception
@@ -184,6 +215,50 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(RecurringReservationNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleRecurringReservationNotFoundException(
+            RecurringReservationNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(SlotBlockNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleSlotBlockNotFoundException(
+            SlotBlockNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(SlotBlockConflictException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleSlotBlockConflictException(
+            SlotBlockConflictException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(SlotBlockNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleSlotBlockNotAllowedException(
+            SlotBlockNotAllowedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
     @ExceptionHandler(AvailabilityNotAllowedException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleAvailabilityNotAllowedException(
             AvailabilityNotAllowedException exception
@@ -192,6 +267,61 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 exception.getMessage(),
                 Map.of()
+        );
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleInvalidCredentialsException(
+            InvalidCredentialsException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleAuthenticationException(
+            AuthenticationException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                "Authentication is required",
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleAccessDeniedException(
+            AccessDeniedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.FORBIDDEN,
+                "Access denied",
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(ResourceNotAccessibleException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleResourceNotAccessibleException(
+            ResourceNotAccessibleException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(ValidationFailedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleValidationFailedException(
+            ValidationFailedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                "Validation failed",
+                Map.of(exception.getField(), exception.getMessage())
         );
     }
 

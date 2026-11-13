@@ -3,6 +3,15 @@ package br.dev.guisleri.agendaarena.common.exception;
 import br.dev.guisleri.agendaarena.auth.exception.InvalidCredentialsException;
 import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
+import br.dev.guisleri.agendaarena.match.exception.FieldPlayerLimitReachedException;
+import br.dev.guisleri.agendaarena.match.exception.GoalkeeperLimitReachedException;
+import br.dev.guisleri.agendaarena.match.exception.MatchInvalidStateException;
+import br.dev.guisleri.agendaarena.match.exception.MatchNotFoundException;
+import br.dev.guisleri.agendaarena.match.exception.MatchParticipantNotFoundException;
+import br.dev.guisleri.agendaarena.match.exception.MatchRegistrationNotAllowedException;
+import br.dev.guisleri.agendaarena.match.exception.ParticipantPaymentConflictException;
+import br.dev.guisleri.agendaarena.match.exception.ReservationNotEligibleForMatchException;
+import br.dev.guisleri.agendaarena.match.exception.TeamShirtColorConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotAllowedException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotFoundException;
@@ -174,6 +183,105 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ReservationInvalidStateException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleReservationInvalidStateException(
             ReservationInvalidStateException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(MatchNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMatchNotFoundException(
+            MatchNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(MatchParticipantNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMatchParticipantNotFoundException(
+            MatchParticipantNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(MatchRegistrationNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMatchRegistrationNotAllowedException(
+            MatchRegistrationNotAllowedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(GoalkeeperLimitReachedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleGoalkeeperLimitReachedException(
+            GoalkeeperLimitReachedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(FieldPlayerLimitReachedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleFieldPlayerLimitReachedException(
+            FieldPlayerLimitReachedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(MatchInvalidStateException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMatchInvalidStateException(
+            MatchInvalidStateException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(ParticipantPaymentConflictException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleParticipantPaymentConflictException(
+            ParticipantPaymentConflictException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(TeamShirtColorConflictException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleTeamShirtColorConflictException(
+            TeamShirtColorConflictException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(ReservationNotEligibleForMatchException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleReservationNotEligibleForMatchException(
+            ReservationNotEligibleForMatchException exception
     ) {
         return createErrorResponse(
                 HttpStatus.CONFLICT,

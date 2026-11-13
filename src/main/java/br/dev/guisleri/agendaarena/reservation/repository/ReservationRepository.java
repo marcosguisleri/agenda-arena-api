@@ -52,25 +52,17 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     Optional<Reservation> findByIdAndOrganizerId(Long id, Long organizerId);
 
     /**
-     * Consultas só de ids: permitem travar o horário ANTES de carregar a reserva, para que o
+     * Consulta só de ids: permite travar o horário ANTES de carregar a reserva, para que o
      * estado lido já seja o confirmado por quem tinha o lock.
      */
     @Query("""
-            select r.scheduleSlot.id
+            select new br.dev.guisleri.agendaarena.reservation.repository.ReservationSlotKey(
+                r.scheduleSlot.id, r.scheduleSlot.sportField.id
+            )
             from Reservation r
             where r.id = :reservationId and r.organizer.id = :organizerId
             """)
-    Optional<Long> findScheduleSlotIdByIdAndOrganizerId(
-            @Param("reservationId") Long reservationId,
-            @Param("organizerId") Long organizerId
-    );
-
-    @Query("""
-            select r.scheduleSlot.sportField.id
-            from Reservation r
-            where r.id = :reservationId and r.organizer.id = :organizerId
-            """)
-    Optional<Long> findSportFieldIdByIdAndOrganizerId(
+    Optional<ReservationSlotKey> findSlotKeyByIdAndOrganizerId(
             @Param("reservationId") Long reservationId,
             @Param("organizerId") Long organizerId
     );

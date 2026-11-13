@@ -3,7 +3,11 @@ package br.dev.guisleri.agendaarena.common.exception;
 import br.dev.guisleri.agendaarena.auth.exception.InvalidCredentialsException;
 import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
+import br.dev.guisleri.agendaarena.match.exception.FieldPlayerLimitReachedException;
+import br.dev.guisleri.agendaarena.match.exception.GoalkeeperLimitReachedException;
 import br.dev.guisleri.agendaarena.match.exception.MatchNotFoundException;
+import br.dev.guisleri.agendaarena.match.exception.MatchParticipantNotFoundException;
+import br.dev.guisleri.agendaarena.match.exception.MatchRegistrationNotAllowedException;
 import br.dev.guisleri.agendaarena.match.exception.ReservationNotEligibleForMatchException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationConflictException;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationNotAllowedException;
@@ -190,6 +194,50 @@ public class GlobalExceptionHandler {
     ) {
         return createErrorResponse(
                 HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(MatchParticipantNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMatchParticipantNotFoundException(
+            MatchParticipantNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(MatchRegistrationNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleMatchRegistrationNotAllowedException(
+            MatchRegistrationNotAllowedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(GoalkeeperLimitReachedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleGoalkeeperLimitReachedException(
+            GoalkeeperLimitReachedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(FieldPlayerLimitReachedException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleFieldPlayerLimitReachedException(
+            FieldPlayerLimitReachedException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
                 exception.getMessage(),
                 Map.of()
         );

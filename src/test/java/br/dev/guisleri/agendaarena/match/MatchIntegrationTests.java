@@ -422,8 +422,8 @@ class MatchIntegrationTests {
 
             assertThat(firstResult.created()).isTrue();
             assertThat(secondResult.created()).isFalse();
-            assertThat(secondResult.match().getPublicToken())
-                    .isEqualTo(firstResult.match().getPublicToken());
+            assertThat(secondResult.details().match().getPublicToken())
+                    .isEqualTo(firstResult.details().match().getPublicToken());
             assertThat(matchRepository.count()).isEqualTo(1);
         }
     }

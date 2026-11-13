@@ -114,6 +114,8 @@ public class SecurityConfig {
 
                         // Página da partida pelo link compartilhado (token aleatório, sem conta)
                         .requestMatchers(HttpMethod.GET, "/matches/{publicToken}").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/matches/{publicToken}/participants")
+                        .permitAll()
 
                         // Só a plataforma (dona do sistema)
                         .requestMatchers(HttpMethod.POST, "/establishments")

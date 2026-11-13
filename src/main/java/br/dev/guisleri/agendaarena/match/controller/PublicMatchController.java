@@ -1,10 +1,16 @@
 package br.dev.guisleri.agendaarena.match.controller;
 
+import br.dev.guisleri.agendaarena.match.dto.JoinMatchRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.PublicMatchResponseDTO;
+import br.dev.guisleri.agendaarena.match.dto.PublicParticipantResponseDTO;
 import br.dev.guisleri.agendaarena.match.service.MatchService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -12,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Página pública da partida, acessada pelo link compartilhado (sem conta).
  */
 @RestController
-@RequestMapping("/matches")
+@RequestMapping("/matches/{publicToken}")
 public class PublicMatchController {
 
     private final MatchService matchService;
@@ -21,10 +27,22 @@ public class PublicMatchController {
         this.matchService = matchService;
     }
 
-    @GetMapping("/{publicToken}")
+    @GetMapping
     public ResponseEntity<PublicMatchResponseDTO> findMatch(@PathVariable String publicToken) {
         return ResponseEntity.ok(
-                PublicMatchResponseDTO.fromEntity(matchService.findPublicMatch(publicToken))
+                PublicMatchResponseDTO.fromDetails(matchService.findPublicMatch(publicToken))
         );
+    }
+
+    @PostMapping("/participants")
+    public ResponseEntity<PublicParticipantResponseDTO> joinMatch(
+            @PathVariable String publicToken,
+            @Valid @RequestBody JoinMatchRequestDTO request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(PublicParticipantResponseDTO.fromEntity(
+                        matchService.joinMatch(publicToken, request.name(), request.position())
+                ));
     }
 }

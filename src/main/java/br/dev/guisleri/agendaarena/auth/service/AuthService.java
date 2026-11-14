@@ -18,6 +18,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenService jwtTokenService;
+    private final RefreshTokenService refreshTokenService;
 
     /**
      * Hash usado para gastar o mesmo tempo quando o e-mail não existe, evitando revelar por
@@ -28,15 +29,17 @@ public class AuthService {
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            JwtTokenService jwtTokenService
+            JwtTokenService jwtTokenService,
+            RefreshTokenService refreshTokenService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenService = jwtTokenService;
+        this.refreshTokenService = refreshTokenService;
         this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-timing");
     }
 
-    public JwtTokenService.IssuedToken login(String email, String password) {
+    public AuthTokens login(String email, String password) {
         String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
 
         if (password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
@@ -57,6 +60,22 @@ public class AuthService {
             throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
         }
 
-        return jwtTokenService.issue(user);
+        JwtTokenService.IssuedToken accessToken = jwtTokenService.issue(user);
+        RefreshTokenService.IssuedRefreshToken refreshToken = refreshTokenService.start(user);
+
+        return new AuthTokens(
+                accessToken.accessToken(),
+                accessToken.expiresInSeconds(),
+                refreshToken.token(),
+                refreshToken.expiresInSeconds()
+        );
+    }
+
+    public AuthTokens refresh(String refreshToken) {
+        return refreshTokenService.rotate(refreshToken);
+    }
+
+    public void logout(String refreshToken) {
+        refreshTokenService.revoke(refreshToken);
     }
 }

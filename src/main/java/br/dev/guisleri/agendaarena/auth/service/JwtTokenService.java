@@ -22,7 +22,7 @@ import java.util.List;
 public class JwtTokenService {
 
     private static final String ISSUER = "agenda-arena-api";
-    private static final long DEFAULT_EXPIRATION_MINUTES = 60;
+    private static final long DEFAULT_EXPIRATION_MINUTES = 15;
 
     private final JwtEncoder jwtEncoder;
     private final Clock clock;

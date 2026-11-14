@@ -257,6 +257,9 @@ monólito modular, Angular separado consumindo esta API REST.
   existente ignora o corpo; sem corpo = sem Pix) ou depois (`PUT/DELETE /me/matches/{id}/pix-key`, sob o lock da partida). `ESTABLISHMENT`
   sem chave configurada → 409. A resposta traz o objeto `pix` (`source`, `keyType`, `key`, `holderName`, `bankName`), nulo se não houver; o
   nome completo do titular fica visível a quem tem o link da partida (LGPD: rever na política de privacidade).
+  **Compatibilidade temporária com o front** (remover quando migrar): as respostas ainda trazem `pixKey` (texto = `pix.key`, obsoleto) e o
+  `PUT /me/matches/{id}/pix-key` aceita o formato antigo só para remover (`{"pixKey": null|""}`; texto preenchido → 400). Guia para o front:
+  `docs/guia-front-pix-e-sessao.md`.
 - **Infra**: Docker/Compose, PostgreSQL 17, Flyway dono do schema, `ddl-auto=validate`, OpenAPI/Swagger previsto. Sem config de
   provedor de nuvem específico.
 

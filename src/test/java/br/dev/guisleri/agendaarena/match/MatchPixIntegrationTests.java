@@ -451,6 +451,101 @@ class MatchPixIntegrationTests {
         }
     }
 
+    // ---------- Compatibilidade temporária com o front ----------
+
+    @Nested
+    @DisplayName("Legacy pixKey compatibility (temporary)")
+    class LegacyCompatibility {
+
+        @Test
+        void shouldKeepTheDeprecatedPixKeyTextNextToThePixObject() throws Exception {
+            long reservationId = reserve(baseDate);
+            String response = createFromReservation(reservationId,
+                    "{\"pix\": " + organizerPix() + "}")
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.pix.key").value("+5519999998888"))
+                    .andExpect(jsonPath("$.pixKey").value("+5519999998888"))
+                    .andReturn().getResponse().getContentAsString();
+            String token = JsonPath.read(response, "$.publicToken");
+
+            mockMvc.perform(get("/matches/{token}", token))
+                    .andExpect(jsonPath("$.pix.key").value("+5519999998888"))
+                    .andExpect(jsonPath("$.pixKey").value("+5519999998888"));
+        }
+
+        @Test
+        void shouldReturnNullPixKeyWhenThereIsNoPix() throws Exception {
+            long reservationId = reserve(baseDate);
+
+            createFromReservation(reservationId, null)
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.pix").value(nullValue()))
+                    .andExpect(jsonPath("$.pixKey").value(nullValue()));
+        }
+
+        @Test
+        void shouldTreatNullOrBlankLegacyPixKeyAsRemoval() throws Exception {
+            for (String legacyBody : new String[]{
+                    "{\"pixKey\": null}", "{\"pixKey\": \"\"}", "{\"pixKey\": \"   \"}"}) {
+                long matchId = createMatchWithOrganizerPix();
+
+                putPix(matchId, legacyBody)
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.pix").value(nullValue()))
+                        .andExpect(jsonPath("$.pixKey").value(nullValue()));
+
+                jdbcTemplate.execute("DELETE FROM matches");
+                jdbcTemplate.execute("DELETE FROM reservations");
+            }
+        }
+
+        @Test
+        void shouldBeIdempotentWhenThereIsNothingToRemove() throws Exception {
+            long reservationId = reserve(baseDate);
+            long matchId = idOf(createFromReservation(reservationId, null)
+                    .andExpect(status().isCreated()));
+
+            putPix(matchId, "{\"pixKey\": null}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.pix").value(nullValue()));
+        }
+
+        @Test
+        void shouldRejectFreeTextWithAnExplanationAndKeepTheCurrentKey() throws Exception {
+            long matchId = createMatchWithOrganizerPix();
+
+            putPix(matchId, "{\"pixKey\": \"chave@example.com\"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.pixKey").isNotEmpty());
+            putPix(matchId, "{\"pixKey\": 123}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.pixKey").isNotEmpty());
+
+            myMatch(matchId).andExpect(jsonPath("$.pix.key").value("+5519999998888"));
+        }
+
+        @Test
+        void shouldRequireSourceWhenNeitherFormatIsSent() throws Exception {
+            long matchId = createMatchWithOrganizerPix();
+
+            putPix(matchId, "{}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.source").isNotEmpty());
+
+            myMatch(matchId).andExpect(jsonPath("$.pix.key").value("+5519999998888"));
+        }
+
+        @Test
+        void shouldPreferTheNewFormatWhenBothArePresent() throws Exception {
+            configureEstablishmentPix();
+            long matchId = createMatchWithOrganizerPix();
+
+            putPix(matchId, "{\"source\": \"ESTABLISHMENT\", \"pixKey\": \"velho\"}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.pix.source").value("ESTABLISHMENT"));
+        }
+    }
+
     // ---------- Apoio ----------
 
     private void configureEstablishmentPix() {
@@ -468,6 +563,13 @@ class MatchPixIntegrationTests {
                 {"source": "ORGANIZER", "keyType": "PHONE", "key": "(19) 99999-8888",
                  "holderName": "Maria da Silva", "bankName": "Nubank"}
                 """;
+    }
+
+    private long createMatchWithOrganizerPix() throws Exception {
+        long reservationId = reserve(baseDate);
+
+        return idOf(createFromReservation(reservationId,
+                "{\"pix\": " + organizerPix() + "}").andExpect(status().isCreated()));
     }
 
     private long createMatchWithEstablishmentPix() throws Exception {

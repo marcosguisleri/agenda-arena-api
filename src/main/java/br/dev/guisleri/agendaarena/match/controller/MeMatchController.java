@@ -1,11 +1,12 @@
 package br.dev.guisleri.agendaarena.match.controller;
 
+import br.dev.guisleri.agendaarena.common.exception.ValidationFailedException;
 import br.dev.guisleri.agendaarena.common.security.AuthenticatedUsers;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPaymentRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPaysShareRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPositionRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantTeamRequestDTO;
-import br.dev.guisleri.agendaarena.match.dto.MatchPixRequestDTO;
+import br.dev.guisleri.agendaarena.match.dto.ChangeMatchPixRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeTeamSettingsRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeTeamsRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.MatchResponseDTO;
@@ -159,15 +160,32 @@ public class MeMatchController {
     @PutMapping("/pix-key")
     public ResponseEntity<MatchResponseDTO> changePix(
             @PathVariable Long matchId,
-            @Valid @RequestBody MatchPixRequestDTO request,
+            @Valid @RequestBody ChangeMatchPixRequestDTO request,
             Authentication authentication
     ) {
+        Long organizerId = AuthenticatedUsers.userId(authentication);
+
+        if (request.source() == null) {
+            // Formato antigo ({"pixKey": ...}): compatibilidade temporária com o front.
+            if (!request.hasLegacyPixKey()) {
+                throw new ValidationFailedException("source", "Source is required");
+            }
+
+            if (!request.legacyPixKeyMeansRemoval()) {
+                throw new ValidationFailedException(
+                        "pixKey",
+                        "Free-text pixKey is no longer supported: send source (ESTABLISHMENT or "
+                                + "ORGANIZER) and, for ORGANIZER, keyType, key and holderName"
+                );
+            }
+
+            return ResponseEntity.ok(MatchResponseDTO.fromDetails(
+                    matchService.removePix(organizerId, matchId)
+            ));
+        }
+
         return ResponseEntity.ok(MatchResponseDTO.fromDetails(
-                matchService.changePix(
-                        AuthenticatedUsers.userId(authentication),
-                        matchId,
-                        request.toChoice()
-                )
+                matchService.changePix(organizerId, matchId, request.toChoice())
         ));
     }
 

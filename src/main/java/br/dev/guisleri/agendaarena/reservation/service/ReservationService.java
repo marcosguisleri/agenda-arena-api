@@ -2,6 +2,11 @@ package br.dev.guisleri.agendaarena.reservation.service;
 
 import br.dev.guisleri.agendaarena.common.config.ReservationPolicyProperties;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
+import br.dev.guisleri.agendaarena.reservation.event.CancellationRefusedEvent;
+import br.dev.guisleri.agendaarena.reservation.event.CancellationRequestedEvent;
+import br.dev.guisleri.agendaarena.reservation.event.ReservationCancelledEvent;
+import br.dev.guisleri.agendaarena.reservation.event.ReservationConfirmedEvent;
+import br.dev.guisleri.agendaarena.reservation.event.ReservationNotice;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationAlreadyExistsException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationInvalidStateException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotFoundException;
@@ -15,6 +20,7 @@ import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -38,6 +44,7 @@ public class ReservationService {
     private final ScheduleSlotRepository scheduleSlotRepository;
     private final Clock clock;
     private final ReservationPolicyProperties policy;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ReservationService(
             UserService userService,
@@ -46,7 +53,8 @@ public class ReservationService {
             SlotBlockService slotBlockService,
             ScheduleSlotRepository scheduleSlotRepository,
             Clock clock,
-            ReservationPolicyProperties policy
+            ReservationPolicyProperties policy,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.userService = userService;
         this.scheduleSlotService = scheduleSlotService;
@@ -56,6 +64,7 @@ public class ReservationService {
         this.scheduleSlotRepository = scheduleSlotRepository;
         this.clock = clock;
         this.policy = policy;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -91,7 +100,11 @@ public class ReservationService {
                         reservationDate
                 );
 
-        return saveReservation(reservation);
+        Reservation saved = saveReservation(reservation);
+
+        eventPublisher.publishEvent(new ReservationConfirmedEvent(ReservationNotice.from(saved)));
+
+        return saved;
     }
 
     @Transactional
@@ -193,6 +206,10 @@ public class ReservationService {
             );
         }
 
+        eventPublisher.publishEvent(
+                new ReservationCancelledEvent(ReservationNotice.from(cancelled))
+        );
+
         return cancelled;
     }
 
@@ -276,7 +293,13 @@ public class ReservationService {
 
         reservation.requestCancellation();
 
-        return reservationRepository.saveAndFlush(reservation);
+        Reservation requested = reservationRepository.saveAndFlush(reservation);
+
+        eventPublisher.publishEvent(
+                new CancellationRequestedEvent(ReservationNotice.from(requested))
+        );
+
+        return requested;
     }
 
     /**
@@ -303,7 +326,11 @@ public class ReservationService {
 
         reservation.refuseCancellationRequest();
 
-        return reservationRepository.saveAndFlush(reservation);
+        Reservation refused = reservationRepository.saveAndFlush(reservation);
+
+        eventPublisher.publishEvent(new CancellationRefusedEvent(ReservationNotice.from(refused)));
+
+        return refused;
     }
 
     /**

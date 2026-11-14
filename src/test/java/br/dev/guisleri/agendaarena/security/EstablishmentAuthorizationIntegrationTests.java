@@ -459,6 +459,10 @@ class EstablishmentAuthorizationIntegrationTests {
                         get("/establishments/{e}/sports-fields/{f}/agenda",
                                 t.establishmentId(), t.sportFieldId())
                                 .param("date", d.toString())),
+                Endpoint.establishmentLevel("GET reservations list", 200, (t, d) ->
+                        get("/establishments/{e}/reservations", t.establishmentId())),
+                Endpoint.establishmentLevel("GET recurring-reservations list", 200, (t, d) ->
+                        get("/establishments/{e}/recurring-reservations", t.establishmentId())),
                 Endpoint.establishmentLevel("POST sports-fields", 201, (t, d) ->
                         post("/establishments/{e}/sports-fields", t.establishmentId())
                                 .contentType(MediaType.APPLICATION_JSON)

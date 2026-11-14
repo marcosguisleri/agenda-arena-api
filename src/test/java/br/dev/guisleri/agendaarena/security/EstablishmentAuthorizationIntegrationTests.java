@@ -50,7 +50,9 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -469,6 +471,19 @@ class EstablishmentAuthorizationIntegrationTests {
                         get("/establishments/{e}/matches", t.establishmentId())),
                 Endpoint.establishmentLevel("GET match detail", 200, (t, d) ->
                         get("/establishments/{e}/matches/{m}", t.establishmentId(), t.matchId())),
+                Endpoint.establishmentLevel("PUT establishment pix-key", 200, (t, d) ->
+                        put("/establishments/{e}/pix-key", t.establishmentId())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"keyType\":\"EMAIL\",\"key\":\"pix@arena.com\","
+                                        + "\"holderName\":\"Arena Central Ltda\"}")),
+                Endpoint.establishmentLevel("GET establishment pix-key", 0, (t, d) ->
+                        get("/establishments/{e}/pix-key", t.establishmentId())),
+                Endpoint.establishmentLevel("DELETE establishment pix-key", 204, (t, d) ->
+                        delete("/establishments/{e}/pix-key", t.establishmentId())),
+                Endpoint.establishmentLevel("GET reservations list", 200, (t, d) ->
+                        get("/establishments/{e}/reservations", t.establishmentId())),
+                Endpoint.establishmentLevel("GET recurring-reservations list", 200, (t, d) ->
+                        get("/establishments/{e}/recurring-reservations", t.establishmentId())),
                 Endpoint.establishmentLevel("POST sports-fields", 201, (t, d) ->
                         post("/establishments/{e}/sports-fields", t.establishmentId())
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -514,7 +529,9 @@ class EstablishmentAuthorizationIntegrationTests {
                 Endpoint.of("POST reservation complete", 0, (t, d) ->
                         post(slotPath(t) + "/reservations/{id}/complete", t.reservationId())),
                 Endpoint.of("POST reservation no-show", 0, (t, d) ->
-                        post(slotPath(t) + "/reservations/{id}/no-show", t.reservationId()))
+                        post(slotPath(t) + "/reservations/{id}/no-show", t.reservationId())),
+                Endpoint.of("POST reservation reopen", 0, (t, d) ->
+                        post(slotPath(t) + "/reservations/{id}/reopen", t.reservationId()))
         );
     }
 

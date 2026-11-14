@@ -15,6 +15,17 @@ public interface EstablishmentAdminRepository
 
     boolean existsByUserIdAndEstablishmentId(Long userId, Long establishmentId);
 
+    /**
+     * E-mails dos administradores ativos do estabelecimento (para os avisos de reserva).
+     */
+    @Query("""
+            select distinct link.user.email
+            from EstablishmentAdmin link
+            where link.establishment.id = :establishmentId
+              and link.user.active = true
+            """)
+    List<String> findActiveAdminEmails(@Param("establishmentId") Long establishmentId);
+
     @Query("""
             select link.establishment
             from EstablishmentAdmin link

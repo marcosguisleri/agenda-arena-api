@@ -1,6 +1,12 @@
 package br.dev.guisleri.agendaarena.reservation.service;
 
+import br.dev.guisleri.agendaarena.common.config.ReservationPolicyProperties;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
+import br.dev.guisleri.agendaarena.reservation.event.CancellationRefusedEvent;
+import br.dev.guisleri.agendaarena.reservation.event.CancellationRequestedEvent;
+import br.dev.guisleri.agendaarena.reservation.event.ReservationCancelledEvent;
+import br.dev.guisleri.agendaarena.reservation.event.ReservationConfirmedEvent;
+import br.dev.guisleri.agendaarena.reservation.event.ReservationNotice;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationAlreadyExistsException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationInvalidStateException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationNotFoundException;
@@ -14,6 +20,7 @@ import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.service.UserService;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -36,6 +43,8 @@ public class ReservationService {
     private final SlotBlockService slotBlockService;
     private final ScheduleSlotRepository scheduleSlotRepository;
     private final Clock clock;
+    private final ReservationPolicyProperties policy;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ReservationService(
             UserService userService,
@@ -43,7 +52,9 @@ public class ReservationService {
             ReservationRepository reservationRepository,
             SlotBlockService slotBlockService,
             ScheduleSlotRepository scheduleSlotRepository,
-            Clock clock
+            Clock clock,
+            ReservationPolicyProperties policy,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.userService = userService;
         this.scheduleSlotService = scheduleSlotService;
@@ -52,6 +63,8 @@ public class ReservationService {
         this.slotBlockService = slotBlockService;
         this.scheduleSlotRepository = scheduleSlotRepository;
         this.clock = clock;
+        this.policy = policy;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -76,7 +89,8 @@ public class ReservationService {
                         establishmentId,
                         sportFieldId,
                         scheduleSlotId,
-                        reservationDate
+                        reservationDate,
+                        false
                 );
 
         Reservation reservation =
@@ -86,7 +100,11 @@ public class ReservationService {
                         reservationDate
                 );
 
-        return saveReservation(reservation);
+        Reservation saved = saveReservation(reservation);
+
+        eventPublisher.publishEvent(new ReservationConfirmedEvent(ReservationNotice.from(saved)));
+
+        return saved;
     }
 
     @Transactional
@@ -111,7 +129,8 @@ public class ReservationService {
                         establishmentId,
                         sportFieldId,
                         scheduleSlotId,
-                        reservationDate
+                        reservationDate,
+                        true
                 );
 
         Reservation reservation =
@@ -186,6 +205,10 @@ public class ReservationService {
                     "Reservation cancelled by the administrator"
             );
         }
+
+        eventPublisher.publishEvent(
+                new ReservationCancelledEvent(ReservationNotice.from(cancelled))
+        );
 
         return cancelled;
     }
@@ -270,7 +293,13 @@ public class ReservationService {
 
         reservation.requestCancellation();
 
-        return reservationRepository.saveAndFlush(reservation);
+        Reservation requested = reservationRepository.saveAndFlush(reservation);
+
+        eventPublisher.publishEvent(
+                new CancellationRequestedEvent(ReservationNotice.from(requested))
+        );
+
+        return requested;
     }
 
     /**
@@ -296,6 +325,37 @@ public class ReservationService {
                         .orElseThrow(() -> reservationNotFound(reservationId));
 
         reservation.refuseCancellationRequest();
+
+        Reservation refused = reservationRepository.saveAndFlush(reservation);
+
+        eventPublisher.publishEvent(new CancellationRefusedEvent(ReservationNotice.from(refused)));
+
+        return refused;
+    }
+
+    /**
+     * O estabelecimento corrige uma marcação de "concluída" ou "não compareceu": a reserva volta a
+     * ficar confirmada. Trava o horário antes de ler o estado, como as demais transições.
+     */
+    @Transactional
+    public Reservation reopenReservation(
+            Long establishmentId,
+            Long sportFieldId,
+            Long scheduleSlotId,
+            Long reservationId
+    ) {
+        scheduleSlotService.findScheduleSlotForUpdate(
+                establishmentId,
+                sportFieldId,
+                scheduleSlotId
+        );
+
+        Reservation reservation =
+                reservationRepository
+                        .findByIdAndScheduleSlotId(reservationId, scheduleSlotId)
+                        .orElseThrow(() -> reservationNotFound(reservationId));
+
+        reservation.reopen();
 
         return reservationRepository.saveAndFlush(reservation);
     }
@@ -406,22 +466,23 @@ public class ReservationService {
         return reservation;
     }
 
+    /**
+     * Trava o slot e só então valida a data (regra crítica nº 2). A reserva online só vale de agora
+     * até {@code maxAdvanceDays} à frente e nunca em horário que já começou. A manual (feita pelo
+     * admin) pode ser retroativa, inclusive hoje em horário passado, até {@code manualMaxPastDays}
+     * atrás, e não tem limite à frente. Dia da semana, bloqueio e ocupação valem para as duas.
+     */
     private ScheduleSlot findReservableScheduleSlot(
             Long establishmentId,
             Long sportFieldId,
             Long scheduleSlotId,
-            LocalDate reservationDate
+            LocalDate reservationDate,
+            boolean manual
     ) {
 
         ZonedDateTime now = ZonedDateTime.now(clock);
         LocalDate currentDate = now.toLocalDate();
         LocalTime currentTime = now.toLocalTime();
-
-        if (reservationDate.isBefore(currentDate)) {
-            throw new ReservationNotAllowedException(
-                    "Reservation date cannot be in the past"
-            );
-        }
 
         ScheduleSlot scheduleSlot =
                 scheduleSlotService.findBookableScheduleSlotForUpdate(
@@ -429,6 +490,8 @@ public class ReservationService {
                         sportFieldId,
                         scheduleSlotId
                 );
+
+        validateReservationDateWindow(reservationDate, currentDate, manual);
 
         if (!reservationDate
                 .getDayOfWeek()
@@ -439,7 +502,8 @@ public class ReservationService {
             );
         }
 
-        if (reservationDate.equals(currentDate)
+        if (!manual
+                && reservationDate.equals(currentDate)
                 && !scheduleSlot.getStartTime().isAfter(currentTime)) {
 
             throw new ReservationNotAllowedException(
@@ -466,6 +530,33 @@ public class ReservationService {
         }
 
         return scheduleSlot;
+    }
+
+    private void validateReservationDateWindow(
+            LocalDate reservationDate,
+            LocalDate currentDate,
+            boolean manual
+    ) {
+        if (manual) {
+            if (reservationDate.isBefore(currentDate.minusDays(policy.manualMaxPastDays()))) {
+                throw new ReservationNotAllowedException(
+                        "Reservation date is too far in the past"
+                );
+            }
+            return;
+        }
+
+        if (reservationDate.isBefore(currentDate)) {
+            throw new ReservationNotAllowedException(
+                    "Reservation date cannot be in the past"
+            );
+        }
+
+        if (reservationDate.isAfter(currentDate.plusDays(policy.maxAdvanceDays()))) {
+            throw new ReservationNotAllowedException(
+                    "Reservation date is too far in the future"
+            );
+        }
     }
 
     private Reservation saveReservation(Reservation reservation) {

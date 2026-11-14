@@ -24,7 +24,7 @@ docker compose up -d                       # Postgres local (usa .env; modelo em
 ## Arquitetura (não reescrever)
 
 Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entity / exception / repository / service`
-(e `model` para enums): `establishment`, `sportfield`, `schedule`, `user`, `reservation`, `availability`, `match`, `common`.
+(e `model` para enums): `establishment`, `sportfield`, `schedule`, `user`, `reservation`, `availability`, `match`, `notification`, `common`.
 
 - **Controller**: fino. Recebe DTO validado (`@Valid`), chama o service, devolve `ResponseEntity` com DTO.
   URLs aninhadas: `/establishments/{id}/sports-fields/{id}/schedule-slots/{id}/reservations`.
@@ -46,6 +46,9 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 2. **Reserva de horário**: todo fluxo que cria reserva (avulsa online/manual ou recorrente) primeiro obtém o
    `ScheduleSlot` com **lock pessimista** (`ScheduleSlotService.findBookableScheduleSlotForUpdate`) e só então valida
    (data no passado, dia da semana igual ao do slot, ocupação). Não mover validações para antes do lock.
+   Janela de datas (`ReservationPolicyProperties`, `app.reservation.*`): a reserva **online** vale de agora até hoje+14 dias e nunca em horário
+   que já começou; a **manual** (admin) pode ser retroativa, inclusive hoje em horário passado, até 30 dias atrás, e não tem limite à frente.
+   A disponibilidade pública também recusa data além de hoje+14.
 3. **O banco é a última barreira**: índice único parcial `idx_unique_active_reservation` (reservas CONFIRMED, CANCELLATION_REQUESTED, COMPLETED e NO_SHOW — V12) e
    `EXCLUDE USING gist` `ex_recurring_reservations_no_overlap` (recorrências). `DataIntegrityViolationException`
    é convertida em exceção de domínio (409) olhando o nome da constraint. Mantenha esses nomes estáveis.
@@ -70,7 +73,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Banco de dados e migrations
 
-- Flyway em `src/main/resources/db/migration` (V1…V17 existentes). **Nunca edite uma migration já existente**
+- Flyway em `src/main/resources/db/migration` (V1…V21 existentes). **Nunca edite uma migration já existente**
   (nem formatação). Mudança de schema = nova migration `V<n+1>__descricao.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate`: nome de tabela/coluna/tipo da entidade precisa bater com a migration,
   senão a aplicação não sobe e os testes falham.
@@ -85,12 +88,17 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Segredos só no `.env` (ignorado pelo Git). Nunca ler, imprimir ou commitar `.env`; use `.env.example` como modelo.
 - Senhas: BCrypt via `PasswordEncoder`; limite de 72 bytes validado em `UserService`. Nunca logar nem devolver hash/senha.
 - Valide toda entrada com Bean Validation nos DTOs; normalize telefone/e-mail no service como já é feito.
-- **Autenticação**: `POST /auth/login` devolve JWT (HS256, `JWT_SECRET` ≥ 32 bytes no `.env`, 60 min, sem refresh token).
+- **Autenticação**: `POST /auth/login` devolve JWT (HS256, `JWT_SECRET` ≥ 32 bytes no `.env`, 15 min por padrão) **e um refresh token**.
+  Refresh token (V20, `refresh_sessions`, pacote `auth`): opaco, 256 bits (`RefreshTokenGenerator`), só o hash SHA-256 vai ao banco; uma linha
+  por sessão (login), com hash atual e anterior. `POST /auth/refresh` troca por um par novo (rotação; janela deslizante de 30 dias) sob
+  **lock da linha da sessão**, antes de validar. Reusar o token anterior revoga a sessão inteira (`noRollbackFor` mantém a revogação);
+  token desconhecido/expirado/revogado/usuário inativo → 401 genérico. `POST /auth/logout` revoga a sessão (204, idempotente). Os dois
+  são públicos (o token é a credencial). Login apaga as sessões expiradas/revogadas do usuário (sem scheduler).
   O token leva `sub` (id do usuário) e `roles`; o vínculo com estabelecimentos NÃO vai no token, é consultado no banco a cada
   requisição (`establishment_admins`), então remover um admin vale na hora.
 - **Papéis** (`users.role`): `ORGANIZER` (cadastro público `POST /users`), `ESTABLISHMENT_ADMIN` (criado pelo PLATFORM_ADMIN em
   `POST /establishments/{id}/admins`), `PLATFORM_ADMIN` (criado na subida a partir de `PLATFORM_ADMIN_EMAIL/PASSWORD`).
-- **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, cadastro, a leitura do
+- **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, refresh, logout, cadastro, a leitura do
   catálogo (GET de estabelecimentos, quadras, horários, disponibilidade) e o **link da partida** (`GET /matches/{publicToken}`,
   `GET /matches/{publicToken}/summary`, `POST /matches/{publicToken}/participants`). O organizador cria/consulta a partida pela
   origem (`/me/reservations/{id}/match`) e gerencia por id (`/me/matches/{matchId}/...`); de outro organizador → 404. O token tem 256 bits (`MatchTokenGenerator`);
@@ -102,9 +110,22 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Erros de segurança passam por `SecurityErrorHandler` → `GlobalExceptionHandler` (mesmo formato `ApiErrorResponseDTO`).
 - **Toda rota nova de gestão precisa entrar em `EstablishmentAuthorizationIntegrationTests.managementEndpoints()`**
   (testes de outro estabelecimento = 404 sem efeito colateral, organizador = 403, anônimo = 401). Sem isso, a rota não está pronta.
-- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES`, `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`.
+- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES` (padrão 15), `REFRESH_EXPIRATION_DAYS` (padrão 30), `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`,
+  `RATE_LIMIT_ENABLED` (padrão `true`), `RATE_LIMIT_TRUST_FORWARDED_HEADERS` (padrão `false`),
+  `MAIL_ENABLED` (padrão `false`), `MAIL_FROM`, `MAIL_HOST/PORT/USERNAME/PASSWORD`, `MAIL_SMTP_AUTH/STARTTLS`
+  (e `MAILPIT_SMTP_PORT/UI_PORT` só no docker-compose).
 - **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
 - **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
+- **Limite de requisições** (`common/ratelimit`, 14/11/2026): balde de fichas em memória (conta em inteiros, tempo do `Clock`), 429 com `Retry-After`
+  no formato de erro padrão (`TooManyRequestsException`). `RateLimitFilter` roda **depois do CORS e antes da autenticação** (o 429 leva os
+  cabeçalhos CORS) e não é bean (criado na cadeia de segurança, senão rodaria duas vezes). Padrões (`AppRateLimitProperties`, ajustáveis por
+  `app.rate-limit.<regra>.limit/.window-seconds`): login 10/min por IP e **5 por 5 min por IP+e-mail** (`LoginAttemptLimiter`, no controller:
+  o e-mail vem no corpo); refresh/logout 30/min; cadastro `POST /users` 10/h; página/resumo da partida 60/min; inscrição 10/min por IP e
+  60/h **por link**; catálogo público 120/min. **Rotas autenticadas não têm limite** (dívida). IP do cliente: conexão por padrão; com
+  `RATE_LIMIT_TRUST_FORWARDED_HEADERS=true` usa a **última** entrada do `X-Forwarded-For` (a do nosso proxy), **só seguro se a API for alcançável
+  apenas pelo proxy**. Baldes só na memória da instância (várias instâncias multiplicam o limite: evoluir para Redis/proxy); mapa limitado a
+  100 mil chaves (LRU). Nos testes de regra de negócio o limite fica **desligado** (`src/test/resources/config`); os testes de limite ligam com
+  `@SpringBootTest(properties = ...)` e usam `support/MutableClock`.
 - Evite vazar detalhes internos em mensagens de erro (SQL, nomes de constraint) na resposta HTTP.
 
 ## Testes
@@ -166,10 +187,15 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
 - Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
   para alguns grupos.
 
-Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
-da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida);
-paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
-refresh token/revogação (decisão pendente nº 6).
+Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver log), só texto simples (sem HTML), sem links para o front
+(falta uma `app.front-url`), sem lembretes/reconfirmação pré-jogo, e para produção é preciso escolher o provedor SMTP e configurar SPF/DKIM do domínio.
+
+Dívidas conhecidas: sem regeneração do token do link público
+da partida (se vazar, não há como trocar);
+paginação em `/me/reservations` (já existe `common/dto/PageResponseDTO` + `PageRequests` para reaproveitar); índice `(schedule_slot_id, reservation_date)`
+em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP); listagem de bloqueios para o admin;
+sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
+(o limite de requisições existe nas rotas públicas; ver Segurança); o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
 
 Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
 - `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
@@ -178,11 +204,12 @@ Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigida
   código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
 - `MatchService.isSourceCancelled` (→ `MatchSourceCancellation.isCancelled`) consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
   por transação.
-- "O horário de hoje já começou?" está em 3 lugares com expressões diferentes (`RecurringOccurrenceService`, `MatchService.hasStarted`,
-  `RecurringReservationService.validateOccurrenceCanBeReleased`): extrair um helper com `Clock`.
+- "O horário já começou?" agora tem helper (`common/time/StartTimeChecker`, usado por `MatchService`, `RecurringOccurrenceService` e
+  `RecurringReservationService`). Ainda repetem a mesma expressão, sem o helper: `ReservationService` (pedido de cancelamento,
+  concluir/não compareceu — essas duas com sentido invertido —, e `findReservableScheduleSlot`), `AvailabilityService` (filtro de hoje)
+  e `SlotBlockService.validateBlockDate`.
 - `@EntityGraph` repetido em 4 finders do `MatchRepository` (usar `@NamedEntityGraph`); `MatchService.readyForView` roda uma consulta só
   pelo efeito colateral de carregar o grafo.
-- Falta índice em `matches.schedule_slot_id` (nova migration; a V18 não pode ser editada).
 
 Armadilhas já vistas neste projeto: `target/` velho causa erro estranho (use `./mvnw clean test`); **não compile pelo IntelliJ
 enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`,
@@ -243,18 +270,38 @@ monólito modular, Angular separado consumindo esta API REST.
     atual), com a partida aberta ou fechada; reabrir mantém os times; quem entra depois fica sem time. Cada time tem nome
     (padrão "Time A"/"Time B") e cor de camiseta opcional de uma **paleta fixa** (`ShirtColor`); os dois times não podem ter a
     mesma cor (409 + CHECK no banco).
-- **Pix**: só exibe a chave (do estabelecimento ou organizador); pagamento fora da plataforma; "pago" é declaração manual, não
-  confirmação bancária. Sem Pix automático, gateway, cartão ou integração bancária.
+- **Pix**: só exibe a chave; pagamento fora da plataforma; "pago" é declaração manual, não confirmação bancária. Sem Pix automático,
+  gateway, cartão ou integração bancária. A chave (`pix/entity/PixKey`, V21) tem tipo (`CPF`, `CNPJ` — inclusive alfanumérico —, `PHONE`,
+  `EMAIL`, `RANDOM`), valor normalizado e validado por tipo (dígitos verificadores de CPF/CNPJ), **nome completo do titular** (obrigatório,
+  ao menos duas palavras) e banco (opcional). O admin configura a do estabelecimento (`PUT/GET/DELETE /establishments/{id}/pix-key`, gestão;
+  **nunca** vai nas rotas públicas do catálogo). Na partida, o organizador escolhe `ESTABLISHMENT` (a chave é **copiada** na hora: se o
+  estabelecimento trocar, o organizador reescolhe para atualizar) ou `ORGANIZER` (própria), na criação (corpo opcional do POST; partida já
+  existente ignora o corpo; sem corpo = sem Pix) ou depois (`PUT/DELETE /me/matches/{id}/pix-key`, sob o lock da partida). `ESTABLISHMENT`
+  sem chave configurada → 409. A resposta traz o objeto `pix` (`source`, `keyType`, `key`, `holderName`, `bankName`), nulo se não houver; o
+  nome completo do titular fica visível a quem tem o link da partida (LGPD: rever na política de privacidade).
+  **Compatibilidade temporária com o front** (remover quando migrar): as respostas ainda trazem `pixKey` (texto = `pix.key`, obsoleto) e o
+  `PUT /me/matches/{id}/pix-key` aceita o formato antigo só para remover (`{"pixKey": null|""}`; texto preenchido → 400). Guia para o front:
+  `docs/guia-front-pix-e-sessao.md`.
+- **E-mails** (14/11/2026; `notification`): texto simples em português, só transacionais de reserva. Confirmação ao organizador; aviso de novo
+  agendamento online aos admins ativos do estabelecimento; cancelamento pelo estabelecimento (inclui aprovar pedido) ao organizador; pedido de
+  cancelamento recebido (organizador) e alerta (admins); pedido recusado (organizador). **Reserva manual não envia** (cliente sem conta). A
+  confirmação principal continua sendo pelo WhatsApp do estabelecimento. Arquitetura: o service publica evento de domínio
+  (`reservation/event/*`, retrato imutável `ReservationNotice`, sem entidade) e `ReservationEmailListener` age em `@TransactionalEventListener(AFTER_COMMIT)`
+  + `@Async("emailTaskExecutor")` (fila limitada; cheia = descarta com aviso): rollback/perdedor de corrida nunca envia e falha de envio só gera
+  log (sem endereço), nunca afeta a reserva. `EmailSender`: `SmtpEmailSender` (`app.mail.enabled=true`) ou `LoggingEmailSender` (padrão). Dev: Mailpit no
+  docker-compose (http://localhost:8025). Testes: `app.mail.async=false` + `EmailSender` de captura. Eventos ficam em `reservation` (e a
+  `notification` depende dela, não o contrário) para evitar ciclo de pacotes.
 - **Infra**: Docker/Compose, PostgreSQL 17, Flyway dono do schema, `ddl-auto=validate`, OpenAPI/Swagger previsto. Sem config de
   provedor de nuvem específico.
 
 ### Recomendado, não definitivo
-- Sessão: hoje JWT de 60 min sem refresh token nem revogação (decisão pendente nº 6). O front precisará de uma estratégia de renovação.
+- Sessão (decisão nº 6 resolvida em 14/11/2026): access JWT de 15 min + refresh token com rotação e detecção de reuso (ver Segurança). O front
+  renova com `POST /auth/refresh` antes/ao expirar e guarda o refresh token com cuidado (ele é a credencial de 30 dias).
 
 ### Pendente (propor recomendação e aguardar; NÃO presumir)
 1. Antecedência mínima/máxima para reservar e prazo de cancelamento. 2. Matriz final de estados/transições por perfil.
-3. Reconfirmação pré-jogo e notificações/e-mail. 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
-gratuito, planos, preços, cobrança, suspensão). 6. Sessão, revogação e refresh tokens. ~~7. Fechar/reabrir organização com
+3. Reconfirmação pré-jogo e lembretes (os e-mails de reserva já existem; ver "Decidido → E-mails"). 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
+gratuito, planos, preços, cobrança, suspensão). ~~6. Sessão, revogação e refresh tokens~~ (resolvida em 14/11/2026). ~~7. Fechar/reabrir organização com
 pagamentos já marcados~~ (resolvida em 13/11/2026; ver "Decidido → Partida").
 
 ### Fora do escopo do MVP
@@ -265,7 +312,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 ### Matriz de estado (evidência: leitura de código em 30/10/2026 e 13/11/2026; reverifique antes de planejar)
 | Item | Status | Evidência |
 |---|---|---|
-| Estabelecimento, campo, slot semanal com preço | implementado (campos de Pix/logo/funcionamento não verificados) | `establishment/`, `sportfield/`, `schedule/` + `*IntegrationTests` |
+| Estabelecimento, campo, slot semanal com preço | implementado (Pix implementado; logo/funcionamento não verificados) | `establishment/`, `sportfield/`, `schedule/` + `*IntegrationTests` |
 | Disponibilidade pública | implementado | `availability/`, `AvailabilityIntegrationTests` |
 | Reserva online (confirmada na hora, preço copiado do slot, organizador ativo) | implementado | `ReservationService`, `Reservation.online`, `ReservationIntegrationTests` |
 | Reserva manual | implementado | `ReservationService.createManualReservation` |
@@ -274,17 +321,22 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Liberação de ocorrência | **implementado e testado** (fatia 1, 30/10/2026): service com lock do slot, endpoint, ocupação com `NOT EXISTS` | `RecurringReservationService.releaseOccurrence`, `RecurringReservationReleaseIntegrationTests` |
 | Bloqueios administrativos (uma data por vez) + cancelar e manter bloqueado (`?keepBlocked=true`) | **implementado e testado** (fatia 3, 30/10/2026): V9 `slot_blocks`, `SlotBlock` no pacote `reservation`, lock do slot, entra na ocupação; bloqueio não sobrescreve reserva/recorrência (409) | `SlotBlockService`, `SlotBlockController`, `SlotBlockIntegrationTests` |
 | Cancelamento pelo admin (`CONFIRMED`→`CANCELLED`) | **implementado e testado** (fatia 2, 30/10/2026): `POST .../reservations/{id}/cancel`, lock do slot, sem exigir slot ativo | `ReservationService.cancelReservation`, `ReservationCancellationIntegrationTests` |
-| Concluída (`COMPLETED`) e não compareceu (`NO_SHOW`) | **implementado e testado** (fatia 4, 30/10/2026): V10 recria CHECK e índice único; `POST .../reservations/{id}/complete` e `/no-show` só de `CONFIRMED` e só a partir do horário de início (`Clock`), sob lock do slot; continuam ocupando o horário; só `CONFIRMED` pode ser cancelada | `ReservationService.completeReservation/markReservationAsNoShow`, `ReservationStatusTransitionIntegrationTests` |
+| Concluída (`COMPLETED`) e não compareceu (`NO_SHOW`) | **implementado e testado** (fatia 4, 30/10/2026): V10 recria CHECK e índice único; `POST .../reservations/{id}/complete` e `/no-show` só de `CONFIRMED` e só a partir do horário de início (`Clock`), sob lock do slot; continuam ocupando o horário; só `CONFIRMED` pode ser cancelada | `ReservationService.completeReservation/markReservationAsNoShow`, `ReservationStatusTransitionIntegrationTests`; correção do admin: `POST .../reservations/{id}/reopen` volta COMPLETED/NO_SHOW para CONFIRMED, sob lock do slot (`ReservationService.reopenReservation`) |
 | Consulta de reserva por id e agenda do admin por campo/dia (`GET .../reservations/{id}`, `GET .../sports-fields/{id}/agenda?date=`) | **implementado e testado** (fatia 5, 30/10/2026): leitura sem lock; agenda com status FREE/RESERVED/RECURRING/BLOCKED (precedência nessa ordem), `recurring.released` indica ocorrência liberada; datas passadas permitidas | `AgendaService`, `ReservationService.findReservation`, `ReservationQueryIntegrationTests` |
 | Solicitação de cancelamento pelo organizador (`CANCELLATION_REQUESTED`) | **implementado e testado** (30/10/2026): V12; `POST /me/reservations/{id}/cancellation-request` (só `CONFIRMED`, só antes do início — único ponto do prazo: `ReservationService.ensureCancellationCanBeRequested`); continua ocupando o horário; admin aprova com o `/cancel` existente ou recusa com `POST .../reservations/{id}/refuse-cancellation` (volta a `CONFIRMED`) | `Reservation.requestCancellation/refuseCancellationRequest`, `MyReservationIntegrationTests` |
 | "Minhas reservas" (`GET /me/reservations`, `GET /me/reservations/{id}`) | **implementado e testado**: só as do usuário do token; de outro → 404; sem paginação ainda | `MeReservationController`, `MyReservationIntegrationTests` |
+| Refresh token (rotação, reuso revoga a sessão, logout) | **implementado e testado** (14/11/2026): V20 `refresh_sessions`, lock da linha da sessão, `POST /auth/refresh` e `/auth/logout` públicos | `RefreshTokenService`, `RefreshTokenIntegrationTests` |
 | Spring Security/JWT, papéis, vínculo admin↔estabelecimento, isolamento | **implementado e testado** (30/10/2026): V11 (`users.role`, `establishment_admins`), login, 401/403/404 conforme a seção Segurança, `GET /me/establishments` | `SecurityConfig`, `EstablishmentAccessAuthorization`, `AuthenticationIntegrationTests`, `EstablishmentAuthorizationIntegrationTests` |
 | Partida: página por reserva + link público (token) | **implementado e testado** (13/11/2026, fatia 1): V14; criação idempotente sob lock do slot; `GET /matches/{token}` | `MatchService.createMatch`, `MatchIntegrationTests` |
 | Partida: inscrição pelo link, linha/goleiro, edição pelo organizador | **implementado e testado** (fatia 2): V15; até 4 goleiros sob lock da partida; corridas testadas | `MatchService.joinMatch`, `MatchParticipantIntegrationTests` |
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
+| Chave Pix do estabelecimento + escolha na partida (tipo, titular, banco) | **implementado e testado** (14/11/2026): V21 (descarta as chaves antigas em texto livre), `PixKey` validado por tipo, cópia para a partida, `pix` no lugar de `pixKey` nas respostas | `PixKeyTests`, `EstablishmentPixKeyIntegrationTests`, `MatchPixIntegrationTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
 | Partida: visão do admin (somente leitura) | **implementado e testado** (14/11/2026): `GET /establishments/{e}/matches` (`from`/`to` padrão hoje..+30 e máx. 92 dias, `sportFieldId`, `status` OPEN/CLOSED, `page`/`size`; ordem data/horário/id; contagens e `cancelled` em lote, sem N+1) e `GET /establishments/{e}/matches/{id}` (participantes, cotas, pagamentos, times, totais; 404 de outro estabelecimento). **Não expõe o `publicToken`** (credencial do organizador) nem a chave Pix; sem ações do admin; ambas em `managementEndpoints()` | `AdminMatchListService`, `MatchService.findEstablishmentMatch`, `AdminMatchViewIntegrationTests` |
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
+| E-mails de reserva (confirmação, cancelamento, pedido de cancelamento e recusa; avisos aos admins) | **implementado e testado** (14/11/2026): eventos + listener pós-commit assíncrono, SMTP ou log, Mailpit em dev | `ReservationEmailListener`, `ReservationEmailTemplates`, `ReservationEmailIntegrationTests`, `ReservationEmailAsyncIntegrationTests` |
+| Limite de requisições nas rotas públicas (login, refresh, cadastro, link da partida, catálogo) | **implementado e testado** (14/11/2026): balde de fichas em memória, 429 + `Retry-After`, limite por conta no login, por link na inscrição | `TokenBucketRateLimiter`, `RateLimitFilter`, `RateLimitIntegrationTests`, `RateLimitForwardedHeadersIntegrationTests` |
+| Listagem do admin: reservas e séries recorrentes (paginadas) | **implementado e testado** (14/11/2026): `GET /establishments/{e}/reservations` (`from`/`to` padrão hoje..+30 e máx. 92 dias, `sportFieldId`, `status` repetível, `origin`, `page`/`size` máx. 100; ordem fixa data/horário/id; traz contato de quem reservou) e `GET /establishments/{e}/recurring-reservations` (`status` ACTIVE/UPCOMING/ENDED, padrão sem encerradas; `sportFieldId`, `hasOrganizer`); só leitura, sem lock; ambas em `managementEndpoints()` | `AdminReservationListService`, `AdminRecurringReservationListService`, `AdminReservationListIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

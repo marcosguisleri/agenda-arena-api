@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.match.service;
 
+import br.dev.guisleri.agendaarena.common.time.StartTimeChecker;
 import br.dev.guisleri.agendaarena.match.dto.RecurringOccurrenceResponseDTO;
 import br.dev.guisleri.agendaarena.match.entity.Match;
 import br.dev.guisleri.agendaarena.match.repository.MatchRepository;
@@ -13,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZonedDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,17 +37,20 @@ public class RecurringOccurrenceService {
     private final RecurringReservationReleaseRepository releaseRepository;
     private final MatchRepository matchRepository;
     private final Clock clock;
+    private final StartTimeChecker startTimeChecker;
 
     public RecurringOccurrenceService(
             RecurringReservationService recurringReservationService,
             RecurringReservationReleaseRepository releaseRepository,
             MatchRepository matchRepository,
-            Clock clock
+            Clock clock,
+            StartTimeChecker startTimeChecker
     ) {
         this.recurringReservationService = recurringReservationService;
         this.releaseRepository = releaseRepository;
         this.matchRepository = matchRepository;
         this.clock = clock;
+        this.startTimeChecker = startTimeChecker;
     }
 
     @Transactional(readOnly = true)
@@ -110,15 +113,14 @@ public class RecurringOccurrenceService {
      */
     private List<LocalDate> upcomingDates(RecurringReservation recurringReservation, int weeks) {
         ScheduleSlot slot = recurringReservation.getScheduleSlot();
-        ZonedDateTime now = ZonedDateTime.now(clock);
-        LocalDate today = now.toLocalDate();
+        LocalDate today = LocalDate.now(clock);
 
         LocalDate first = today.isAfter(recurringReservation.getStartDate())
                 ? today
                 : recurringReservation.getStartDate();
         first = first.with(TemporalAdjusters.nextOrSame(slot.getDayOfWeek()));
 
-        if (first.equals(today) && !slot.getStartTime().isAfter(now.toLocalTime())) {
+        if (startTimeChecker.hasStarted(first, slot.getStartTime())) {
             first = first.plusWeeks(1);
         }
 

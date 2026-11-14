@@ -107,9 +107,20 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Erros de segurança passam por `SecurityErrorHandler` → `GlobalExceptionHandler` (mesmo formato `ApiErrorResponseDTO`).
 - **Toda rota nova de gestão precisa entrar em `EstablishmentAuthorizationIntegrationTests.managementEndpoints()`**
   (testes de outro estabelecimento = 404 sem efeito colateral, organizador = 403, anônimo = 401). Sem isso, a rota não está pronta.
-- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES` (padrão 15), `REFRESH_EXPIRATION_DAYS` (padrão 30), `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`.
+- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES` (padrão 15), `REFRESH_EXPIRATION_DAYS` (padrão 30), `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`,
+  `RATE_LIMIT_ENABLED` (padrão `true`), `RATE_LIMIT_TRUST_FORWARDED_HEADERS` (padrão `false`).
 - **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
 - **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
+- **Limite de requisições** (`common/ratelimit`, 14/11/2026): balde de fichas em memória (conta em inteiros, tempo do `Clock`), 429 com `Retry-After`
+  no formato de erro padrão (`TooManyRequestsException`). `RateLimitFilter` roda **depois do CORS e antes da autenticação** (o 429 leva os
+  cabeçalhos CORS) e não é bean (criado na cadeia de segurança, senão rodaria duas vezes). Padrões (`AppRateLimitProperties`, ajustáveis por
+  `app.rate-limit.<regra>.limit/.window-seconds`): login 10/min por IP e **5 por 5 min por IP+e-mail** (`LoginAttemptLimiter`, no controller:
+  o e-mail vem no corpo); refresh/logout 30/min; cadastro `POST /users` 10/h; página/resumo da partida 60/min; inscrição 10/min por IP e
+  60/h **por link**; catálogo público 120/min. **Rotas autenticadas não têm limite** (dívida). IP do cliente: conexão por padrão; com
+  `RATE_LIMIT_TRUST_FORWARDED_HEADERS=true` usa a **última** entrada do `X-Forwarded-For` (a do nosso proxy), **só seguro se a API for alcançável
+  apenas pelo proxy**. Baldes só na memória da instância (várias instâncias multiplicam o limite: evoluir para Redis/proxy); mapa limitado a
+  100 mil chaves (LRU). Nos testes de regra de negócio o limite fica **desligado** (`src/test/resources/config`); os testes de limite ligam com
+  `@SpringBootTest(properties = ...)` e usam `support/MutableClock`.
 - Evite vazar detalhes internos em mensagens de erro (SQL, nomes de constraint) na resposta HTTP.
 
 ## Testes
@@ -171,11 +182,11 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
 - Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
   para alguns grupos.
 
-Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
-da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
+Dívidas conhecidas: sem regeneração do token do link público
+da partida (se vazar, não há como trocar); chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
 paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
 sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
-e limite de requisições em `/auth/*`; o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
+(o limite de requisições existe nas rotas públicas; ver Segurança); o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
 
 Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
 - `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
@@ -291,6 +302,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
+| Limite de requisições nas rotas públicas (login, refresh, cadastro, link da partida, catálogo) | **implementado e testado** (14/11/2026): balde de fichas em memória, 429 + `Retry-After`, limite por conta no login, por link na inscrição | `TokenBucketRateLimiter`, `RateLimitFilter`, `RateLimitIntegrationTests`, `RateLimitForwardedHeadersIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

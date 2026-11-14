@@ -391,6 +391,24 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleTooManyRequestsException(
+            TooManyRequestsException exception
+    ) {
+        HttpStatus status = HttpStatus.TOO_MANY_REQUESTS;
+
+        return ResponseEntity
+                .status(status)
+                .header("Retry-After", String.valueOf(exception.getRetryAfterSeconds()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ApiErrorResponseDTO(
+                        status.value(),
+                        status.getReasonPhrase(),
+                        exception.getMessage(),
+                        Map.of()
+                ));
+    }
+
     @ExceptionHandler(InvalidRefreshTokenException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleInvalidRefreshTokenException(
             InvalidRefreshTokenException exception

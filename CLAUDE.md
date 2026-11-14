@@ -70,7 +70,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Banco de dados e migrations
 
-- Flyway em `src/main/resources/db/migration` (V1…V20 existentes). **Nunca edite uma migration já existente**
+- Flyway em `src/main/resources/db/migration` (V1…V21 existentes). **Nunca edite uma migration já existente**
   (nem formatação). Mudança de schema = nova migration `V<n+1>__descricao.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate`: nome de tabela/coluna/tipo da entidade precisa bater com a migration,
   senão a aplicação não sobe e os testes falham.
@@ -172,7 +172,7 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
   para alguns grupos.
 
 Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
-da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
+da partida; visão somente leitura da partida para o admin;
 paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
 sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
 e limite de requisições em `/auth/*`; o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
@@ -248,8 +248,18 @@ monólito modular, Angular separado consumindo esta API REST.
     atual), com a partida aberta ou fechada; reabrir mantém os times; quem entra depois fica sem time. Cada time tem nome
     (padrão "Time A"/"Time B") e cor de camiseta opcional de uma **paleta fixa** (`ShirtColor`); os dois times não podem ter a
     mesma cor (409 + CHECK no banco).
-- **Pix**: só exibe a chave (do estabelecimento ou organizador); pagamento fora da plataforma; "pago" é declaração manual, não
-  confirmação bancária. Sem Pix automático, gateway, cartão ou integração bancária.
+- **Pix**: só exibe a chave; pagamento fora da plataforma; "pago" é declaração manual, não confirmação bancária. Sem Pix automático,
+  gateway, cartão ou integração bancária. A chave (`pix/entity/PixKey`, V21) tem tipo (`CPF`, `CNPJ` — inclusive alfanumérico —, `PHONE`,
+  `EMAIL`, `RANDOM`), valor normalizado e validado por tipo (dígitos verificadores de CPF/CNPJ), **nome completo do titular** (obrigatório,
+  ao menos duas palavras) e banco (opcional). O admin configura a do estabelecimento (`PUT/GET/DELETE /establishments/{id}/pix-key`, gestão;
+  **nunca** vai nas rotas públicas do catálogo). Na partida, o organizador escolhe `ESTABLISHMENT` (a chave é **copiada** na hora: se o
+  estabelecimento trocar, o organizador reescolhe para atualizar) ou `ORGANIZER` (própria), na criação (corpo opcional do POST; partida já
+  existente ignora o corpo; sem corpo = sem Pix) ou depois (`PUT/DELETE /me/matches/{id}/pix-key`, sob o lock da partida). `ESTABLISHMENT`
+  sem chave configurada → 409. A resposta traz o objeto `pix` (`source`, `keyType`, `key`, `holderName`, `bankName`), nulo se não houver; o
+  nome completo do titular fica visível a quem tem o link da partida (LGPD: rever na política de privacidade).
+  **Compatibilidade temporária com o front** (remover quando migrar): as respostas ainda trazem `pixKey` (texto = `pix.key`, obsoleto) e o
+  `PUT /me/matches/{id}/pix-key` aceita o formato antigo só para remover (`{"pixKey": null|""}`; texto preenchido → 400). Guia para o front:
+  `docs/guia-front-pix-e-sessao.md`.
 - **Infra**: Docker/Compose, PostgreSQL 17, Flyway dono do schema, `ddl-auto=validate`, OpenAPI/Swagger previsto. Sem config de
   provedor de nuvem específico.
 
@@ -271,7 +281,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 ### Matriz de estado (evidência: leitura de código em 30/10/2026 e 13/11/2026; reverifique antes de planejar)
 | Item | Status | Evidência |
 |---|---|---|
-| Estabelecimento, campo, slot semanal com preço | implementado (campos de Pix/logo/funcionamento não verificados) | `establishment/`, `sportfield/`, `schedule/` + `*IntegrationTests` |
+| Estabelecimento, campo, slot semanal com preço | implementado (Pix implementado; logo/funcionamento não verificados) | `establishment/`, `sportfield/`, `schedule/` + `*IntegrationTests` |
 | Disponibilidade pública | implementado | `availability/`, `AvailabilityIntegrationTests` |
 | Reserva online (confirmada na hora, preço copiado do slot, organizador ativo) | implementado | `ReservationService`, `Reservation.online`, `ReservationIntegrationTests` |
 | Reserva manual | implementado | `ReservationService.createManualReservation` |
@@ -289,6 +299,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Partida: página por reserva + link público (token) | **implementado e testado** (13/11/2026, fatia 1): V14; criação idempotente sob lock do slot; `GET /matches/{token}` | `MatchService.createMatch`, `MatchIntegrationTests` |
 | Partida: inscrição pelo link, linha/goleiro, edição pelo organizador | **implementado e testado** (fatia 2): V15; até 4 goleiros sob lock da partida; corridas testadas | `MatchService.joinMatch`, `MatchParticipantIntegrationTests` |
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
+| Chave Pix do estabelecimento + escolha na partida (tipo, titular, banco) | **implementado e testado** (14/11/2026): V21 (descarta as chaves antigas em texto livre), `PixKey` validado por tipo, cópia para a partida, `pix` no lugar de `pixKey` nas respostas | `PixKeyTests`, `EstablishmentPixKeyIntegrationTests`, `MatchPixIntegrationTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |

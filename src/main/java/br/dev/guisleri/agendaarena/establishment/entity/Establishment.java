@@ -1,6 +1,8 @@
 package br.dev.guisleri.agendaarena.establishment.entity;
 
+import br.dev.guisleri.agendaarena.pix.entity.PixKey;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -21,6 +23,12 @@ public class Establishment {
     @Column(nullable = false)
     private boolean active;
 
+    /**
+     * Chave Pix do estabelecimento; o organizador pode escolhê-la ao criar a partida.
+     */
+    @Embedded
+    private PixKey pix;
+
     protected Establishment() {
     }
 
@@ -37,6 +45,14 @@ public class Establishment {
         this.active = false;
     }
 
+    public void changePix(PixKey pix) {
+        this.pix = pix;
+    }
+
+    public void removePix() {
+        this.pix = null;
+    }
+
     public Long getId() {
         return id;
     }
@@ -47,6 +63,10 @@ public class Establishment {
 
     public boolean isActive() {
         return active;
+    }
+
+    public PixKey getPix() {
+        return pix;
     }
 
 }

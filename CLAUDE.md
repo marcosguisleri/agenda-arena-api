@@ -182,7 +182,7 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
   slot; trocar o organizador de série que **já tem partida** → 409. Está em `managementEndpoints()`.
 - `GET /me/recurring-reservations` e `GET /me/recurring-reservations/{id}/occurrences?weeks=8` (1..26; hoje só entra se o horário
   não começou; traz `released`, `matchId`, `matchPublicToken`). Qualquer ocorrência futura e ativa pode ganhar partida; criação sob demanda.
-- Ocorrência "cancelada" = data liberada (`recurring_reservations_releases`); decidida só em `MatchService.isSourceCancelled`.
+- Ocorrência "cancelada" = data liberada (`recurring_reservations_releases`); decidida só em `MatchSourceCancellation` (`MatchService.isSourceCancelled` delega; há versão em lote para a listagem do admin).
   A resposta da partida traz `recurringReservationId` e `occurrenceDate` (e `reservationId` nulo).
 - Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
   para alguns grupos.
@@ -191,7 +191,7 @@ Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver l
 (falta uma `app.front-url`), sem lembretes/reconfirmação pré-jogo, e para produção é preciso escolher o provedor SMTP e configurar SPF/DKIM do domínio.
 
 Dívidas conhecidas: sem regeneração do token do link público
-da partida (se vazar, não há como trocar); visão somente leitura da partida para o admin;
+da partida (se vazar, não há como trocar);
 paginação em `/me/reservations` (já existe `common/dto/PageResponseDTO` + `PageRequests` para reaproveitar); índice `(schedule_slot_id, reservation_date)`
 em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP); listagem de bloqueios para o admin;
 sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
@@ -202,7 +202,7 @@ Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigida
   estabelecimento (a criação de recorrência já era assim); decisão do dono: exigir `ORGANIZER`?
 - A regra "não trocar o organizador de série com partida" vive só no service (e cria ciclo de pacotes `reservation` ↔ `match`); outro
   código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
-- `MatchService.isSourceCancelled` consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
+- `MatchService.isSourceCancelled` (→ `MatchSourceCancellation.isCancelled`) consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
   por transação.
 - "O horário já começou?" agora tem helper (`common/time/StartTimeChecker`, usado por `MatchService`, `RecurringOccurrenceService` e
   `RecurringReservationService`). Ainda repetem a mesma expressão, sem o helper: `ReservationService` (pedido de cancelamento,
@@ -332,6 +332,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
 | Chave Pix do estabelecimento + escolha na partida (tipo, titular, banco) | **implementado e testado** (14/11/2026): V21 (descarta as chaves antigas em texto livre), `PixKey` validado por tipo, cópia para a partida, `pix` no lugar de `pixKey` nas respostas | `PixKeyTests`, `EstablishmentPixKeyIntegrationTests`, `MatchPixIntegrationTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
+| Partida: visão do admin (somente leitura) | **implementado e testado** (14/11/2026): `GET /establishments/{e}/matches` (`from`/`to` padrão hoje..+30 e máx. 92 dias, `sportFieldId`, `status` OPEN/CLOSED, `page`/`size`; ordem data/horário/id; contagens e `cancelled` em lote, sem N+1) e `GET /establishments/{e}/matches/{id}` (participantes, cotas, pagamentos, times, totais; 404 de outro estabelecimento). **Não expõe o `publicToken`** (credencial do organizador) nem a chave Pix; sem ações do admin; ambas em `managementEndpoints()` | `AdminMatchListService`, `MatchService.findEstablishmentMatch`, `AdminMatchViewIntegrationTests` |
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
 | E-mails de reserva (confirmação, cancelamento, pedido de cancelamento e recusa; avisos aos admins) | **implementado e testado** (14/11/2026): eventos + listener pós-commit assíncrono, SMTP ou log, Mailpit em dev | `ReservationEmailListener`, `ReservationEmailTemplates`, `ReservationEmailIntegrationTests`, `ReservationEmailAsyncIntegrationTests` |
 | Limite de requisições nas rotas públicas (login, refresh, cadastro, link da partida, catálogo) | **implementado e testado** (14/11/2026): balde de fichas em memória, 429 + `Retry-After`, limite por conta no login, por link na inscrição | `TokenBucketRateLimiter`, `RateLimitFilter`, `RateLimitIntegrationTests`, `RateLimitForwardedHeadersIntegrationTests` |

@@ -67,6 +67,7 @@ public class MatchService {
     private final RecurringReservationReleaseRepository recurringReservationReleaseRepository;
     private final MatchTokenGenerator matchTokenGenerator;
     private final Clock clock;
+    private final MatchSourceCancellation sourceCancellation;
     private final StartTimeChecker startTimeChecker;
     private final RandomGenerator randomGenerator;
 
@@ -79,6 +80,7 @@ public class MatchService {
             RecurringReservationReleaseRepository recurringReservationReleaseRepository,
             MatchTokenGenerator matchTokenGenerator,
             Clock clock,
+            MatchSourceCancellation sourceCancellation,
             StartTimeChecker startTimeChecker,
             RandomGenerator randomGenerator
     ) {
@@ -90,6 +92,7 @@ public class MatchService {
         this.recurringReservationReleaseRepository = recurringReservationReleaseRepository;
         this.matchTokenGenerator = matchTokenGenerator;
         this.clock = clock;
+        this.sourceCancellation = sourceCancellation;
         this.startTimeChecker = startTimeChecker;
         this.randomGenerator = randomGenerator;
     }
@@ -656,6 +659,19 @@ public class MatchService {
     // ---------- Apoio ----------
 
     /**
+     * Partida vista pelo administrador do estabelecimento (somente leitura): participantes e cotas
+     * como a visão do organizador. De outro estabelecimento ou inexistente: 404.
+     */
+    @Transactional(readOnly = true)
+    public MatchDetails findEstablishmentMatch(Long establishmentId, Long matchId) {
+        Match match = matchRepository
+                .findByIdAndEstablishmentId(matchId, establishmentId)
+                .orElseThrow(() -> matchNotFound(matchId));
+
+        return details(match);
+    }
+
+    /**
      * Garante o grafo da reserva (campo, estabelecimento) carregado para o DTO fora da transação,
      * numa consulta só, reaproveitando a lista de participantes já carregada.
      */
@@ -763,20 +779,7 @@ public class MatchService {
      * cancelada. Origem ocorrência de recorrência: data liberada.
      */
     private boolean isSourceCancelled(Match match) {
-        Reservation reservation = match.getReservation();
-
-        if (reservation != null) {
-            return reservation.getStatus() == ReservationStatus.CANCELLED;
-        }
-
-        RecurringReservation series = match.getRecurringReservation();
-
-        return series != null
-                && recurringReservationReleaseRepository
-                .existsByRecurringReservationIdAndOccurrenceDate(
-                        series.getId(),
-                        match.getOccurrenceDate()
-                );
+        return sourceCancellation.isCancelled(match);
     }
 
     private static String cancelledMessage(Match match) {

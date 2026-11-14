@@ -1,6 +1,8 @@
 package br.dev.guisleri.agendaarena.reservation.repository;
 
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -27,6 +29,53 @@ public interface RecurringReservationRepository extends JpaRepository<RecurringR
             "scheduleSlot.sportField.establishment"
     })
     List<RecurringReservation> findAllByOrganizerIdOrderByStartDateDescIdDesc(Long organizerId);
+
+    /**
+     * Listagem do administrador: séries de um estabelecimento, da mais recente para a mais antiga.
+     * Cada situação (em andamento, futura, encerrada) é incluída por uma flag, em relação a
+     * {@code today}; {@code filterOrganizer} liga o filtro "com/sem organizador vinculado".
+     */
+    @EntityGraph(attributePaths = {"scheduleSlot", "scheduleSlot.sportField", "organizer"})
+    @Query(value = """
+            select r from RecurringReservation r
+            where r.scheduleSlot.sportField.establishment.id = :establishmentId
+              and (:sportFieldId is null or r.scheduleSlot.sportField.id = :sportFieldId)
+              and (:filterOrganizer = false
+                   or (:organizerLinked = true and r.organizer is not null)
+                   or (:organizerLinked = false and r.organizer is null))
+              and (
+                   (:includeActive = true and r.startDate <= :today
+                        and (r.endDate is null or r.endDate >= :today))
+                or (:includeUpcoming = true and r.startDate > :today)
+                or (:includeEnded = true and r.endDate is not null and r.endDate < :today)
+              )
+            order by r.startDate desc, r.id desc
+            """,
+            countQuery = """
+            select count(r) from RecurringReservation r
+            where r.scheduleSlot.sportField.establishment.id = :establishmentId
+              and (:sportFieldId is null or r.scheduleSlot.sportField.id = :sportFieldId)
+              and (:filterOrganizer = false
+                   or (:organizerLinked = true and r.organizer is not null)
+                   or (:organizerLinked = false and r.organizer is null))
+              and (
+                   (:includeActive = true and r.startDate <= :today
+                        and (r.endDate is null or r.endDate >= :today))
+                or (:includeUpcoming = true and r.startDate > :today)
+                or (:includeEnded = true and r.endDate is not null and r.endDate < :today)
+              )
+            """)
+    Page<RecurringReservation> findForAdmin(
+            @Param("establishmentId") Long establishmentId,
+            @Param("sportFieldId") Long sportFieldId,
+            @Param("filterOrganizer") boolean filterOrganizer,
+            @Param("organizerLinked") boolean organizerLinked,
+            @Param("includeActive") boolean includeActive,
+            @Param("includeUpcoming") boolean includeUpcoming,
+            @Param("includeEnded") boolean includeEnded,
+            @Param("today") LocalDate today,
+            Pageable pageable
+    );
 
     /**
      * Série de outro organizador (ou sem organizador) é tratada como inexistente.

@@ -24,7 +24,7 @@ docker compose up -d                       # Postgres local (usa .env; modelo em
 ## Arquitetura (não reescrever)
 
 Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entity / exception / repository / service`
-(e `model` para enums): `establishment`, `sportfield`, `schedule`, `user`, `reservation`, `availability`, `match`, `common`.
+(e `model` para enums): `establishment`, `sportfield`, `schedule`, `user`, `reservation`, `availability`, `match`, `notification`, `common`.
 
 - **Controller**: fino. Recebe DTO validado (`@Valid`), chama o service, devolve `ResponseEntity` com DTO.
   URLs aninhadas: `/establishments/{id}/sports-fields/{id}/schedule-slots/{id}/reservations`.
@@ -105,7 +105,8 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Erros de segurança passam por `SecurityErrorHandler` → `GlobalExceptionHandler` (mesmo formato `ApiErrorResponseDTO`).
 - **Toda rota nova de gestão precisa entrar em `EstablishmentAuthorizationIntegrationTests.managementEndpoints()`**
   (testes de outro estabelecimento = 404 sem efeito colateral, organizador = 403, anônimo = 401). Sem isso, a rota não está pronta.
-- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES`, `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`.
+- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES`, `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`, `MAIL_ENABLED` (padrão `false`), `MAIL_FROM`,
+  `MAIL_HOST/PORT/USERNAME/PASSWORD`, `MAIL_SMTP_AUTH/STARTTLS` (e `MAILPIT_SMTP_PORT/UI_PORT` só no docker-compose).
 - **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
 - **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
 - Evite vazar detalhes internos em mensagens de erro (SQL, nomes de constraint) na resposta HTTP.
@@ -168,6 +169,9 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
   A resposta da partida traz `recurringReservationId` e `occurrenceDate` (e `reservationId` nulo).
 - Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
   para alguns grupos.
+
+Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver log), só texto simples (sem HTML), sem links para o front
+(falta uma `app.front-url`), sem lembretes/reconfirmação pré-jogo, e para produção é preciso escolher o provedor SMTP e configurar SPF/DKIM do domínio.
 
 Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
 da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
@@ -248,6 +252,15 @@ monólito modular, Angular separado consumindo esta API REST.
     mesma cor (409 + CHECK no banco).
 - **Pix**: só exibe a chave (do estabelecimento ou organizador); pagamento fora da plataforma; "pago" é declaração manual, não
   confirmação bancária. Sem Pix automático, gateway, cartão ou integração bancária.
+- **E-mails** (14/11/2026; `notification`): texto simples em português, só transacionais de reserva. Confirmação ao organizador; aviso de novo
+  agendamento online aos admins ativos do estabelecimento; cancelamento pelo estabelecimento (inclui aprovar pedido) ao organizador; pedido de
+  cancelamento recebido (organizador) e alerta (admins); pedido recusado (organizador). **Reserva manual não envia** (cliente sem conta). A
+  confirmação principal continua sendo pelo WhatsApp do estabelecimento. Arquitetura: o service publica evento de domínio
+  (`reservation/event/*`, retrato imutável `ReservationNotice`, sem entidade) e `ReservationEmailListener` age em `@TransactionalEventListener(AFTER_COMMIT)`
+  + `@Async("emailTaskExecutor")` (fila limitada; cheia = descarta com aviso): rollback/perdedor de corrida nunca envia e falha de envio só gera
+  log (sem endereço), nunca afeta a reserva. `EmailSender`: `SmtpEmailSender` (`app.mail.enabled=true`) ou `LoggingEmailSender` (padrão). Dev: Mailpit no
+  docker-compose (http://localhost:8025). Testes: `app.mail.async=false` + `EmailSender` de captura. Eventos ficam em `reservation` (e a
+  `notification` depende dela, não o contrário) para evitar ciclo de pacotes.
 - **Infra**: Docker/Compose, PostgreSQL 17, Flyway dono do schema, `ddl-auto=validate`, OpenAPI/Swagger previsto. Sem config de
   provedor de nuvem específico.
 
@@ -256,7 +269,7 @@ monólito modular, Angular separado consumindo esta API REST.
 
 ### Pendente (propor recomendação e aguardar; NÃO presumir)
 1. Antecedência mínima/máxima para reservar e prazo de cancelamento. 2. Matriz final de estados/transições por perfil.
-3. Reconfirmação pré-jogo e notificações/e-mail. 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
+3. Reconfirmação pré-jogo e lembretes (os e-mails de reserva já existem; ver "Decidido → E-mails"). 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
 gratuito, planos, preços, cobrança, suspensão). 6. Sessão, revogação e refresh tokens. ~~7. Fechar/reabrir organização com
 pagamentos já marcados~~ (resolvida em 13/11/2026; ver "Decidido → Partida").
 
@@ -287,6 +300,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
+| E-mails de reserva (confirmação, cancelamento, pedido de cancelamento e recusa; avisos aos admins) | **implementado e testado** (14/11/2026): eventos + listener pós-commit assíncrono, SMTP ou log, Mailpit em dev | `ReservationEmailListener`, `ReservationEmailTemplates`, `ReservationEmailIntegrationTests`, `ReservationEmailAsyncIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

@@ -2,8 +2,9 @@ package br.dev.guisleri.agendaarena.auth.controller;
 
 import br.dev.guisleri.agendaarena.auth.dto.LoginRequestDTO;
 import br.dev.guisleri.agendaarena.auth.dto.LoginResponseDTO;
+import br.dev.guisleri.agendaarena.auth.dto.RefreshTokenRequestDTO;
 import br.dev.guisleri.agendaarena.auth.service.AuthService;
-import br.dev.guisleri.agendaarena.auth.service.JwtTokenService;
+import br.dev.guisleri.agendaarena.auth.service.AuthTokens;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,15 +26,27 @@ public class AuthController {
     public ResponseEntity<LoginResponseDTO> login(
             @Valid @RequestBody LoginRequestDTO requestDTO
     ) {
-        JwtTokenService.IssuedToken token =
+        AuthTokens tokens =
                 authService.login(requestDTO.email(), requestDTO.password());
 
-        return ResponseEntity.ok(
-                new LoginResponseDTO(
-                        token.accessToken(),
-                        "Bearer",
-                        token.expiresInSeconds()
-                )
-        );
+        return ResponseEntity.ok(LoginResponseDTO.fromTokens(tokens));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<LoginResponseDTO> refresh(
+            @Valid @RequestBody RefreshTokenRequestDTO requestDTO
+    ) {
+        AuthTokens tokens = authService.refresh(requestDTO.refreshToken());
+
+        return ResponseEntity.ok(LoginResponseDTO.fromTokens(tokens));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            @Valid @RequestBody RefreshTokenRequestDTO requestDTO
+    ) {
+        authService.logout(requestDTO.refreshToken());
+
+        return ResponseEntity.noContent().build();
     }
 }

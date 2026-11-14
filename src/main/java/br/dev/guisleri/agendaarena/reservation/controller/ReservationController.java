@@ -120,6 +120,24 @@ public class ReservationController {
         return ResponseEntity.ok(ReservationResponseDTO.fromEntity(reservation));
     }
 
+    @PostMapping("/{reservationId}/reopen")
+    public ResponseEntity<ReservationResponseDTO> reopenReservation(
+            @PathVariable Long establishmentId,
+            @PathVariable Long sportFieldId,
+            @PathVariable Long scheduleSlotId,
+            @PathVariable Long reservationId
+    ) {
+        Reservation reservation =
+                reservationService.reopenReservation(
+                        establishmentId,
+                        sportFieldId,
+                        scheduleSlotId,
+                        reservationId
+                );
+
+        return ResponseEntity.ok(ReservationResponseDTO.fromEntity(reservation));
+    }
+
     @PostMapping("/{reservationId}/no-show")
     public ResponseEntity<ReservationResponseDTO> markReservationAsNoShow(
             @PathVariable Long establishmentId,

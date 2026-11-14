@@ -1,6 +1,7 @@
 package br.dev.guisleri.agendaarena.availability.service;
 
 import br.dev.guisleri.agendaarena.availability.dto.AvailabilityResponseDTO;
+import br.dev.guisleri.agendaarena.common.config.ReservationPolicyProperties;
 import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.service.EstablishmentService;
@@ -23,13 +24,15 @@ public class AvailabilityService {
     private final SlotOccupancyService slotOccupancyService;
     private final ScheduleSlotRepository scheduleSlotRepository;
     private final Clock clock;
+    private final ReservationPolicyProperties policy;
 
-    public AvailabilityService(EstablishmentService establishmentService, SportFieldService sportFieldService, SlotOccupancyService slotOccupancyService, ScheduleSlotRepository scheduleSlotRepository, Clock clock) {
+    public AvailabilityService(EstablishmentService establishmentService, SportFieldService sportFieldService, SlotOccupancyService slotOccupancyService, ScheduleSlotRepository scheduleSlotRepository, Clock clock, ReservationPolicyProperties policy) {
         this.establishmentService = establishmentService;
         this.sportFieldService = sportFieldService;
         this.slotOccupancyService = slotOccupancyService;
         this.scheduleSlotRepository = scheduleSlotRepository;
         this.clock = clock;
+        this.policy = policy;
     }
 
     public List<AvailabilityResponseDTO> findAvailability(
@@ -44,6 +47,12 @@ public class AvailabilityService {
         if (date.isBefore(currentDate)) {
             throw new AvailabilityNotAllowedException(
                     "Availability date cannot be in the past"
+            );
+        }
+
+        if (date.isAfter(currentDate.plusDays(policy.maxAdvanceDays()))) {
+            throw new AvailabilityNotAllowedException(
+                    "Availability date is too far in the future"
             );
         }
 

@@ -504,7 +504,9 @@ class EstablishmentAuthorizationIntegrationTests {
                 Endpoint.of("POST reservation complete", 0, (t, d) ->
                         post(slotPath(t) + "/reservations/{id}/complete", t.reservationId())),
                 Endpoint.of("POST reservation no-show", 0, (t, d) ->
-                        post(slotPath(t) + "/reservations/{id}/no-show", t.reservationId()))
+                        post(slotPath(t) + "/reservations/{id}/no-show", t.reservationId())),
+                Endpoint.of("POST reservation reopen", 0, (t, d) ->
+                        post(slotPath(t) + "/reservations/{id}/reopen", t.reservationId()))
         );
     }
 

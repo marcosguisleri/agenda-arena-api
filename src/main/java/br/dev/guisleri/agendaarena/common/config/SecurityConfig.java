@@ -108,7 +108,11 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 
                         // Públicas
-                        .requestMatchers(HttpMethod.POST, "/auth/login", "/users").permitAll()
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/auth/login", "/auth/refresh", "/auth/logout", "/users"
+                        )
+                        .permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_PATTERNS).permitAll()
                         .requestMatchers(HttpMethod.GET, API_DOCS_PATTERNS).permitAll()
 

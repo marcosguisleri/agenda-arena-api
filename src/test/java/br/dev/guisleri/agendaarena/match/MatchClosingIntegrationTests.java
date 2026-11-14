@@ -345,47 +345,54 @@ class MatchClosingIntegrationTests {
 
     @Nested
     @DisplayName("Pix key")
-    class PixKey {
+    class PixKeyChoice {
 
         @Test
-        void shouldShowTrimmedPixKeyToOrganizerAndGuests() throws Exception {
-            pixKey("\"  organizador@example.com  \"")
+        void shouldShowOrganizerPixToOrganizerAndGuests() throws Exception {
+            putPix(organizerPix("EMAIL", "  Organizador@Example.com  ", "Maria da Silva"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.pixKey").value("organizador@example.com"));
+                    .andExpect(jsonPath("$.pix.source").value("ORGANIZER"))
+                    .andExpect(jsonPath("$.pix.keyType").value("EMAIL"))
+                    .andExpect(jsonPath("$.pix.key").value("organizador@example.com"))
+                    .andExpect(jsonPath("$.pix.holderName").value("Maria da Silva"))
+                    .andExpect(jsonPath("$.pix.bankName").value(nullValue()));
 
             mockMvc.perform(get("/matches/{token}", token))
-                    .andExpect(jsonPath("$.pixKey").value("organizador@example.com"));
+                    .andExpect(jsonPath("$.pix.key").value("organizador@example.com"))
+                    .andExpect(jsonPath("$.pix.holderName").value("Maria da Silva"));
         }
 
         @Test
-        void shouldClearPixKeyWithBlankOrNull() throws Exception {
-            pixKey("\"chave\"").andExpect(status().isOk());
+        void shouldClearPix() throws Exception {
+            putPix(organizerPix("EMAIL", "chave@example.com", "Maria da Silva"))
+                    .andExpect(status().isOk());
 
-            pixKey("\"   \"")
+            removePix()
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.pixKey").value(nullValue()));
+                    .andExpect(jsonPath("$.pix").value(nullValue()));
+            removePix()
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.pix").value(nullValue()));
 
-            pixKey("\"chave\"").andExpect(status().isOk());
-            pixKey("null")
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.pixKey").value(nullValue()));
+            mockMvc.perform(get("/matches/{token}", token))
+                    .andExpect(jsonPath("$.pix").value(nullValue()));
         }
 
         @Test
         void shouldRejectTooLongPixKey() throws Exception {
-            pixKey("\"" + "a".repeat(141) + "\"")
+            putPix(organizerPix("EMAIL", "a".repeat(141), "Maria da Silva"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.errors.pixKey").exists());
+                    .andExpect(jsonPath("$.errors.key").exists());
         }
 
         @Test
-        void shouldAllowChangingPixKeyWhileClosed() throws Exception {
+        void shouldAllowChangingPixWhileClosed() throws Exception {
             join("Joao", "FIELD");
             close().andExpect(status().isOk());
 
-            pixKey("\"chave-nova\"")
+            putPix(organizerPix("EMAIL", "chave-nova@example.com", "Maria da Silva"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.pixKey").value("chave-nova"));
+                    .andExpect(jsonPath("$.pix.key").value("chave-nova@example.com"));
         }
     }
 
@@ -530,7 +537,7 @@ class MatchClosingIntegrationTests {
             payment(participantId, true)
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message").value("Reservation was cancelled"));
-            pixKey("\"chave\"")
+            putPix(organizerPix("EMAIL", "chave@example.com", "Maria da Silva"))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message").value("Reservation was cancelled"));
             paysShare(participantId, false).andExpect(status().isConflict());
@@ -542,7 +549,7 @@ class MatchClosingIntegrationTests {
             myMatch()
                     .andExpect(jsonPath("$.status").value("OPEN"))
                     .andExpect(jsonPath("$.reservationStatus").value("CANCELLED"))
-                    .andExpect(jsonPath("$.pixKey").value(nullValue()))
+                    .andExpect(jsonPath("$.pix").value(nullValue()))
                     .andExpect(jsonPath("$.participants[0].paid").value(false));
             mockMvc.perform(get("/matches/{token}/summary", token))
                     .andExpect(status().isOk());
@@ -573,7 +580,7 @@ class MatchClosingIntegrationTests {
             mockMvc.perform(post(matchPath() + "/reopen")).andExpect(status().isUnauthorized());
             mockMvc.perform(put(matchPath() + "/pix-key")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"pixKey\": \"x\"}"))
+                            .content(organizerPix("EMAIL", "x@example.com", "Maria da Silva")))
                     .andExpect(status().isUnauthorized());
             mockMvc.perform(put(participantPath(participantId) + "/payment")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -586,7 +593,7 @@ class MatchClosingIntegrationTests {
 
             myMatch()
                     .andExpect(jsonPath("$.status").value("OPEN"))
-                    .andExpect(jsonPath("$.pixKey").value(nullValue()))
+                    .andExpect(jsonPath("$.pix").value(nullValue()))
                     .andExpect(jsonPath("$.participants[0].paid").value(false));
         }
 
@@ -600,7 +607,7 @@ class MatchClosingIntegrationTests {
             mockMvc.perform(put(matchPath() + "/pix-key")
                             .header("Authorization", bearer(otherOrganizer))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"pixKey\": \"x\"}"))
+                            .content(organizerPix("EMAIL", "x@example.com", "Maria da Silva")))
                     .andExpect(status().isNotFound());
             mockMvc.perform(put(participantPath(participantId) + "/payment")
                             .header("Authorization", bearer(otherOrganizer))
@@ -610,7 +617,7 @@ class MatchClosingIntegrationTests {
 
             myMatch()
                     .andExpect(jsonPath("$.status").value("OPEN"))
-                    .andExpect(jsonPath("$.pixKey").value(nullValue()))
+                    .andExpect(jsonPath("$.pix").value(nullValue()))
                     .andExpect(jsonPath("$.participants[0].paid").value(false));
         }
     }
@@ -689,11 +696,22 @@ class MatchClosingIntegrationTests {
                 .header("Authorization", bearer(organizer)));
     }
 
-    private ResultActions pixKey(String jsonValue) throws Exception {
+    private ResultActions putPix(String body) throws Exception {
         return mockMvc.perform(put(matchPath() + "/pix-key")
                 .header("Authorization", bearer(organizer))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"pixKey\": " + jsonValue + "}"));
+                .content(body));
+    }
+
+    private ResultActions removePix() throws Exception {
+        return mockMvc.perform(delete(matchPath() + "/pix-key")
+                .header("Authorization", bearer(organizer)));
+    }
+
+    private static String organizerPix(String keyType, String key, String holderName) {
+        return """
+                {"source": "ORGANIZER", "keyType": "%s", "key": "%s", "holderName": "%s"}
+                """.formatted(keyType, key, holderName);
     }
 
     private ResultActions paysShare(long participantId, boolean paysShare) throws Exception {

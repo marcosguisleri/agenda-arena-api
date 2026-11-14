@@ -1,5 +1,8 @@
 package br.dev.guisleri.agendaarena.match.service;
 
+import br.dev.guisleri.agendaarena.common.exception.ValidationFailedException;
+import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
+import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentPixKeyNotConfiguredException;
 import br.dev.guisleri.agendaarena.common.time.StartTimeChecker;
 import br.dev.guisleri.agendaarena.match.entity.Match;
 import br.dev.guisleri.agendaarena.match.entity.MatchParticipant;
@@ -14,10 +17,12 @@ import br.dev.guisleri.agendaarena.match.exception.ReservationNotEligibleForMatc
 import br.dev.guisleri.agendaarena.match.exception.TeamShirtColorConflictException;
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
 import br.dev.guisleri.agendaarena.match.model.MatchTeam;
+import br.dev.guisleri.agendaarena.match.model.PixSource;
 import br.dev.guisleri.agendaarena.match.model.PlayerPosition;
 import br.dev.guisleri.agendaarena.match.model.ShirtColor;
 import br.dev.guisleri.agendaarena.match.repository.MatchParticipantRepository;
 import br.dev.guisleri.agendaarena.match.repository.MatchRepository;
+import br.dev.guisleri.agendaarena.pix.entity.PixKey;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
@@ -99,8 +104,16 @@ public class MatchService {
      * cancelamento do administrador não passa no meio da validação. Só cria antes do início do
      * jogo: depois dele ninguém mais poderia se inscrever.
      */
-    @Transactional
     public MatchCreationResult createMatch(Long organizerId, Long reservationId) {
+        return createMatch(organizerId, reservationId, null);
+    }
+
+    @Transactional
+    public MatchCreationResult createMatch(
+            Long organizerId,
+            Long reservationId,
+            PixChoice pixChoice
+    ) {
         Reservation reservation =
                 reservationService.findOrganizerReservationForUpdate(organizerId, reservationId);
 
@@ -124,9 +137,10 @@ public class MatchService {
             throw new ReservationNotEligibleForMatchException("Reservation has already started");
         }
 
-        matchRepository.saveAndFlush(
-                Match.forReservation(reservation, matchTokenGenerator.newToken(), clock.instant())
-        );
+        Match match =
+                Match.forReservation(reservation, matchTokenGenerator.newToken(), clock.instant());
+        applyPixChoice(match, pixChoice);
+        matchRepository.saveAndFlush(match);
 
         // Relê com o grafo completo (campo e estabelecimento) para o DTO fora da transação.
         return new MatchCreationResult(
@@ -141,11 +155,20 @@ public class MatchService {
      * então criação dupla e liberação da data se serializam (quem chega depois vê o resultado do
      * primeiro). Só ocorrência futura e não liberada; o preço é o do slot, congelado agora.
      */
-    @Transactional
     public MatchCreationResult createOccurrenceMatch(
             Long organizerId,
             Long recurringReservationId,
             LocalDate occurrenceDate
+    ) {
+        return createOccurrenceMatch(organizerId, recurringReservationId, occurrenceDate, null);
+    }
+
+    @Transactional
+    public MatchCreationResult createOccurrenceMatch(
+            Long organizerId,
+            Long recurringReservationId,
+            LocalDate occurrenceDate,
+            PixChoice pixChoice
     ) {
         RecurringReservation series =
                 recurringReservationService.findOrganizerRecurringReservationForUpdate(
@@ -183,14 +206,15 @@ public class MatchService {
             throw new ReservationNotEligibleForMatchException("Occurrence has already started");
         }
 
-        matchRepository.saveAndFlush(
+        Match match =
                 Match.forOccurrence(
                         series,
                         occurrenceDate,
                         matchTokenGenerator.newToken(),
                         clock.instant()
-                )
-        );
+                );
+        applyPixChoice(match, pixChoice);
+        matchRepository.saveAndFlush(match);
 
         return new MatchCreationResult(
                 findMyMatchByOccurrence(organizerId, recurringReservationId, occurrenceDate),
@@ -390,16 +414,73 @@ public class MatchService {
     }
 
     /**
-     * Define a chave Pix exibida na página (vazia remove). Só exibição: o pagamento é externo.
+     * Define a chave Pix exibida na página: a do estabelecimento (copiada agora; se ele trocar
+     * depois, o organizador reescolhe para atualizar) ou uma própria do organizador. Só exibição:
+     * o pagamento é externo.
      */
     @Transactional
-    public MatchDetails changePixKey(Long organizerId, Long matchId, String pixKey) {
+    public MatchDetails changePix(Long organizerId, Long matchId, PixChoice pixChoice) {
         Match match = lockMyActiveMatch(organizerId, matchId);
 
-        match.changePixKey(pixKey == null || pixKey.isBlank() ? null : pixKey.trim());
+        applyPixChoice(match, pixChoice);
         matchRepository.saveAndFlush(match);
 
         return findMyMatch(organizerId, matchId);
+    }
+
+    /**
+     * Remove a chave Pix da página (idempotente).
+     */
+    @Transactional
+    public MatchDetails removePix(Long organizerId, Long matchId) {
+        Match match = lockMyActiveMatch(organizerId, matchId);
+
+        match.clearPix();
+        matchRepository.saveAndFlush(match);
+
+        return findMyMatch(organizerId, matchId);
+    }
+
+    /**
+     * Aplica a escolha à partida (sem escolha, não faz nada). A chave do estabelecimento é
+     * copiada: a partida guarda a sua própria instância.
+     */
+    private void applyPixChoice(Match match, PixChoice pixChoice) {
+        if (pixChoice == null) {
+            return;
+        }
+
+        if (pixChoice.source() == PixSource.ESTABLISHMENT) {
+            if (pixChoice.hasKeyFields()) {
+                throw new ValidationFailedException(
+                        "source",
+                        "Key fields are only accepted with source ORGANIZER"
+                );
+            }
+
+            Establishment establishment =
+                    match.getScheduleSlot().getSportField().getEstablishment();
+            PixKey establishmentKey = establishment.getPix();
+
+            if (establishmentKey == null) {
+                throw new EstablishmentPixKeyNotConfiguredException(
+                        "Establishment has no Pix key configured"
+                );
+            }
+
+            match.changePix(PixSource.ESTABLISHMENT, establishmentKey.copy());
+            return;
+        }
+
+        match.changePix(
+                PixSource.ORGANIZER,
+                PixKey.of(
+                        pixChoice.keyType(),
+                        pixChoice.key(),
+                        pixChoice.holderName(),
+                        pixChoice.bankName()
+                )
+        );
     }
 
     // ---------- Fechar e reabrir ----------

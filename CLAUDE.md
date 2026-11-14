@@ -73,7 +73,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Banco de dados e migrations
 
-- Flyway em `src/main/resources/db/migration` (V1…V19 existentes). **Nunca edite uma migration já existente**
+- Flyway em `src/main/resources/db/migration` (V1…V21 existentes). **Nunca edite uma migration já existente**
   (nem formatação). Mudança de schema = nova migration `V<n+1>__descricao.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate`: nome de tabela/coluna/tipo da entidade precisa bater com a migration,
   senão a aplicação não sobe e os testes falham.
@@ -88,12 +88,17 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Segredos só no `.env` (ignorado pelo Git). Nunca ler, imprimir ou commitar `.env`; use `.env.example` como modelo.
 - Senhas: BCrypt via `PasswordEncoder`; limite de 72 bytes validado em `UserService`. Nunca logar nem devolver hash/senha.
 - Valide toda entrada com Bean Validation nos DTOs; normalize telefone/e-mail no service como já é feito.
-- **Autenticação**: `POST /auth/login` devolve JWT (HS256, `JWT_SECRET` ≥ 32 bytes no `.env`, 60 min, sem refresh token).
+- **Autenticação**: `POST /auth/login` devolve JWT (HS256, `JWT_SECRET` ≥ 32 bytes no `.env`, 15 min por padrão) **e um refresh token**.
+  Refresh token (V20, `refresh_sessions`, pacote `auth`): opaco, 256 bits (`RefreshTokenGenerator`), só o hash SHA-256 vai ao banco; uma linha
+  por sessão (login), com hash atual e anterior. `POST /auth/refresh` troca por um par novo (rotação; janela deslizante de 30 dias) sob
+  **lock da linha da sessão**, antes de validar. Reusar o token anterior revoga a sessão inteira (`noRollbackFor` mantém a revogação);
+  token desconhecido/expirado/revogado/usuário inativo → 401 genérico. `POST /auth/logout` revoga a sessão (204, idempotente). Os dois
+  são públicos (o token é a credencial). Login apaga as sessões expiradas/revogadas do usuário (sem scheduler).
   O token leva `sub` (id do usuário) e `roles`; o vínculo com estabelecimentos NÃO vai no token, é consultado no banco a cada
   requisição (`establishment_admins`), então remover um admin vale na hora.
 - **Papéis** (`users.role`): `ORGANIZER` (cadastro público `POST /users`), `ESTABLISHMENT_ADMIN` (criado pelo PLATFORM_ADMIN em
   `POST /establishments/{id}/admins`), `PLATFORM_ADMIN` (criado na subida a partir de `PLATFORM_ADMIN_EMAIL/PASSWORD`).
-- **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, cadastro, a leitura do
+- **Autorização é negar por padrão** (`SecurityConfig`, `anyRequest().denyAll()`). Públicas: login, refresh, logout, cadastro, a leitura do
   catálogo (GET de estabelecimentos, quadras, horários, disponibilidade) e o **link da partida** (`GET /matches/{publicToken}`,
   `GET /matches/{publicToken}/summary`, `POST /matches/{publicToken}/participants`). O organizador cria/consulta a partida pela
   origem (`/me/reservations/{id}/match`) e gerencia por id (`/me/matches/{matchId}/...`); de outro organizador → 404. O token tem 256 bits (`MatchTokenGenerator`);
@@ -105,7 +110,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Erros de segurança passam por `SecurityErrorHandler` → `GlobalExceptionHandler` (mesmo formato `ApiErrorResponseDTO`).
 - **Toda rota nova de gestão precisa entrar em `EstablishmentAuthorizationIntegrationTests.managementEndpoints()`**
   (testes de outro estabelecimento = 404 sem efeito colateral, organizador = 403, anônimo = 401). Sem isso, a rota não está pronta.
-- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES`, `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`.
+- Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES` (padrão 15), `REFRESH_EXPIRATION_DAYS` (padrão 30), `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`.
 - **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
 - **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
 - Evite vazar detalhes internos em mensagens de erro (SQL, nomes de constraint) na resposta HTTP.
@@ -170,10 +175,11 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
   para alguns grupos.
 
 Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
-da partida; chave Pix do estabelecimento (hoje só a do organizador, na partida); visão somente leitura da partida para o admin;
+da partida; visão somente leitura da partida para o admin;
 paginação em `/me/reservations` (já existe `common/dto/PageResponseDTO` + `PageRequests` para reaproveitar); índice `(schedule_slot_id, reservation_date)`
 em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP); listagem de bloqueios para o admin;
-refresh token/revogação (decisão pendente nº 6).
+sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
+e limite de requisições em `/auth/*`; o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
 
 Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
 - `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
@@ -248,18 +254,29 @@ monólito modular, Angular separado consumindo esta API REST.
     atual), com a partida aberta ou fechada; reabrir mantém os times; quem entra depois fica sem time. Cada time tem nome
     (padrão "Time A"/"Time B") e cor de camiseta opcional de uma **paleta fixa** (`ShirtColor`); os dois times não podem ter a
     mesma cor (409 + CHECK no banco).
-- **Pix**: só exibe a chave (do estabelecimento ou organizador); pagamento fora da plataforma; "pago" é declaração manual, não
-  confirmação bancária. Sem Pix automático, gateway, cartão ou integração bancária.
+- **Pix**: só exibe a chave; pagamento fora da plataforma; "pago" é declaração manual, não confirmação bancária. Sem Pix automático,
+  gateway, cartão ou integração bancária. A chave (`pix/entity/PixKey`, V21) tem tipo (`CPF`, `CNPJ` — inclusive alfanumérico —, `PHONE`,
+  `EMAIL`, `RANDOM`), valor normalizado e validado por tipo (dígitos verificadores de CPF/CNPJ), **nome completo do titular** (obrigatório,
+  ao menos duas palavras) e banco (opcional). O admin configura a do estabelecimento (`PUT/GET/DELETE /establishments/{id}/pix-key`, gestão;
+  **nunca** vai nas rotas públicas do catálogo). Na partida, o organizador escolhe `ESTABLISHMENT` (a chave é **copiada** na hora: se o
+  estabelecimento trocar, o organizador reescolhe para atualizar) ou `ORGANIZER` (própria), na criação (corpo opcional do POST; partida já
+  existente ignora o corpo; sem corpo = sem Pix) ou depois (`PUT/DELETE /me/matches/{id}/pix-key`, sob o lock da partida). `ESTABLISHMENT`
+  sem chave configurada → 409. A resposta traz o objeto `pix` (`source`, `keyType`, `key`, `holderName`, `bankName`), nulo se não houver; o
+  nome completo do titular fica visível a quem tem o link da partida (LGPD: rever na política de privacidade).
+  **Compatibilidade temporária com o front** (remover quando migrar): as respostas ainda trazem `pixKey` (texto = `pix.key`, obsoleto) e o
+  `PUT /me/matches/{id}/pix-key` aceita o formato antigo só para remover (`{"pixKey": null|""}`; texto preenchido → 400). Guia para o front:
+  `docs/guia-front-pix-e-sessao.md`.
 - **Infra**: Docker/Compose, PostgreSQL 17, Flyway dono do schema, `ddl-auto=validate`, OpenAPI/Swagger previsto. Sem config de
   provedor de nuvem específico.
 
 ### Recomendado, não definitivo
-- Sessão: hoje JWT de 60 min sem refresh token nem revogação (decisão pendente nº 6). O front precisará de uma estratégia de renovação.
+- Sessão (decisão nº 6 resolvida em 14/11/2026): access JWT de 15 min + refresh token com rotação e detecção de reuso (ver Segurança). O front
+  renova com `POST /auth/refresh` antes/ao expirar e guarda o refresh token com cuidado (ele é a credencial de 30 dias).
 
 ### Pendente (propor recomendação e aguardar; NÃO presumir)
 1. Antecedência mínima/máxima para reservar e prazo de cancelamento. 2. Matriz final de estados/transições por perfil.
 3. Reconfirmação pré-jogo e notificações/e-mail. 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
-gratuito, planos, preços, cobrança, suspensão). 6. Sessão, revogação e refresh tokens. ~~7. Fechar/reabrir organização com
+gratuito, planos, preços, cobrança, suspensão). ~~6. Sessão, revogação e refresh tokens~~ (resolvida em 14/11/2026). ~~7. Fechar/reabrir organização com
 pagamentos já marcados~~ (resolvida em 13/11/2026; ver "Decidido → Partida").
 
 ### Fora do escopo do MVP
@@ -270,7 +287,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 ### Matriz de estado (evidência: leitura de código em 30/10/2026 e 13/11/2026; reverifique antes de planejar)
 | Item | Status | Evidência |
 |---|---|---|
-| Estabelecimento, campo, slot semanal com preço | implementado (campos de Pix/logo/funcionamento não verificados) | `establishment/`, `sportfield/`, `schedule/` + `*IntegrationTests` |
+| Estabelecimento, campo, slot semanal com preço | implementado (Pix implementado; logo/funcionamento não verificados) | `establishment/`, `sportfield/`, `schedule/` + `*IntegrationTests` |
 | Disponibilidade pública | implementado | `availability/`, `AvailabilityIntegrationTests` |
 | Reserva online (confirmada na hora, preço copiado do slot, organizador ativo) | implementado | `ReservationService`, `Reservation.online`, `ReservationIntegrationTests` |
 | Reserva manual | implementado | `ReservationService.createManualReservation` |
@@ -283,10 +300,12 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Consulta de reserva por id e agenda do admin por campo/dia (`GET .../reservations/{id}`, `GET .../sports-fields/{id}/agenda?date=`) | **implementado e testado** (fatia 5, 30/10/2026): leitura sem lock; agenda com status FREE/RESERVED/RECURRING/BLOCKED (precedência nessa ordem), `recurring.released` indica ocorrência liberada; datas passadas permitidas | `AgendaService`, `ReservationService.findReservation`, `ReservationQueryIntegrationTests` |
 | Solicitação de cancelamento pelo organizador (`CANCELLATION_REQUESTED`) | **implementado e testado** (30/10/2026): V12; `POST /me/reservations/{id}/cancellation-request` (só `CONFIRMED`, só antes do início — único ponto do prazo: `ReservationService.ensureCancellationCanBeRequested`); continua ocupando o horário; admin aprova com o `/cancel` existente ou recusa com `POST .../reservations/{id}/refuse-cancellation` (volta a `CONFIRMED`) | `Reservation.requestCancellation/refuseCancellationRequest`, `MyReservationIntegrationTests` |
 | "Minhas reservas" (`GET /me/reservations`, `GET /me/reservations/{id}`) | **implementado e testado**: só as do usuário do token; de outro → 404; sem paginação ainda | `MeReservationController`, `MyReservationIntegrationTests` |
+| Refresh token (rotação, reuso revoga a sessão, logout) | **implementado e testado** (14/11/2026): V20 `refresh_sessions`, lock da linha da sessão, `POST /auth/refresh` e `/auth/logout` públicos | `RefreshTokenService`, `RefreshTokenIntegrationTests` |
 | Spring Security/JWT, papéis, vínculo admin↔estabelecimento, isolamento | **implementado e testado** (30/10/2026): V11 (`users.role`, `establishment_admins`), login, 401/403/404 conforme a seção Segurança, `GET /me/establishments` | `SecurityConfig`, `EstablishmentAccessAuthorization`, `AuthenticationIntegrationTests`, `EstablishmentAuthorizationIntegrationTests` |
 | Partida: página por reserva + link público (token) | **implementado e testado** (13/11/2026, fatia 1): V14; criação idempotente sob lock do slot; `GET /matches/{token}` | `MatchService.createMatch`, `MatchIntegrationTests` |
 | Partida: inscrição pelo link, linha/goleiro, edição pelo organizador | **implementado e testado** (fatia 2): V15; até 4 goleiros sob lock da partida; corridas testadas | `MatchService.joinMatch`, `MatchParticipantIntegrationTests` |
 | Partida: rateio, pagamento declarado, Pix, fechar/reabrir | **implementado e testado** (fatia 3): V16; `MatchSplitCalculator` | `MatchClosingIntegrationTests`, `MatchSplitCalculatorTests` |
+| Chave Pix do estabelecimento + escolha na partida (tipo, titular, banco) | **implementado e testado** (14/11/2026): V21 (descarta as chaves antigas em texto livre), `PixKey` validado por tipo, cópia para a partida, `pix` no lugar de `pixKey` nas respostas | `PixKeyTests`, `EstablishmentPixKeyIntegrationTests`, `MatchPixIntegrationTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
 | Listagem do admin: reservas e séries recorrentes (paginadas) | **implementado e testado** (14/11/2026): `GET /establishments/{e}/reservations` (`from`/`to` padrão hoje..+30 e máx. 92 dias, `sportFieldId`, `status` repetível, `origin`, `page`/`size` máx. 100; ordem fixa data/horário/id; traz contato de quem reservou) e `GET /establishments/{e}/recurring-reservations` (`status` ACTIVE/UPCOMING/ENDED, padrão sem encerradas; `sportFieldId`, `hasOrganizer`); só leitura, sem lock; ambas em `managementEndpoints()` | `AdminReservationListService`, `AdminRecurringReservationListService`, `AdminReservationListIntegrationTests` |

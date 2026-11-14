@@ -1,5 +1,8 @@
 package br.dev.guisleri.agendaarena.security;
 
+import br.dev.guisleri.agendaarena.match.entity.Match;
+import br.dev.guisleri.agendaarena.match.repository.MatchRepository;
+import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.auth.service.JwtTokenService;
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.entity.EstablishmentAdmin;
@@ -95,6 +98,8 @@ class EstablishmentAuthorizationIntegrationTests {
     private SlotBlockRepository slotBlockRepository;
     @Autowired
     private RecurringReservationRepository recurringReservationRepository;
+    @Autowired
+    private MatchRepository matchRepository;
 
     private MockMvc mockMvc;
     private LocalDate baseDate;
@@ -184,7 +189,8 @@ class EstablishmentAuthorizationIntegrationTests {
                 targetB.scheduleSlotId(),
                 targetB.reservationId(),
                 targetB.recurringReservationId(),
-                targetB.organizerId()
+                targetB.organizerId(),
+                targetB.matchId()
         );
         long before = totalRecords();
 
@@ -459,6 +465,10 @@ class EstablishmentAuthorizationIntegrationTests {
                         get("/establishments/{e}/sports-fields/{f}/agenda",
                                 t.establishmentId(), t.sportFieldId())
                                 .param("date", d.toString())),
+                Endpoint.establishmentLevel("GET matches list", 200, (t, d) ->
+                        get("/establishments/{e}/matches", t.establishmentId())),
+                Endpoint.establishmentLevel("GET match detail", 200, (t, d) ->
+                        get("/establishments/{e}/matches/{m}", t.establishmentId(), t.matchId())),
                 Endpoint.establishmentLevel("POST sports-fields", 201, (t, d) ->
                         post("/establishments/{e}/sports-fields", t.establishmentId())
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -600,13 +610,25 @@ class EstablishmentAuthorizationIntegrationTests {
                 )
         );
 
+        // Uma partida por estabelecimento (reserva online do organizador, em data só dela).
+        Reservation online = reservationRepository.save(
+                Reservation.online(organizer, slot, baseDate.plusDays(49)));
+        Match match = matchRepository.save(
+                Match.forReservation(
+                        online,
+                        ("t" + establishment.getId() + "x".repeat(43)).substring(0, 43),
+                        Instant.now(clock)
+                )
+        );
+
         return new Target(
                 establishment.getId(),
                 sportField.getId(),
                 slot.getId(),
                 reservationId.longValue(),
                 recurring.getId(),
-                organizer.getId()
+                organizer.getId(),
+                match.getId()
         );
     }
 
@@ -628,7 +650,8 @@ class EstablishmentAuthorizationIntegrationTests {
                 + scheduleSlotRepository.count()
                 + reservationRepository.count()
                 + slotBlockRepository.count()
-                + recurringReservationRepository.count();
+                + recurringReservationRepository.count()
+                + matchRepository.count();
     }
 
     record Target(
@@ -637,7 +660,8 @@ class EstablishmentAuthorizationIntegrationTests {
             Long scheduleSlotId,
             Long reservationId,
             Long recurringReservationId,
-            Long organizerId
+            Long organizerId,
+            Long matchId
     ) {
     }
 

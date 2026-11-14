@@ -25,6 +25,23 @@ public interface RecurringReservationReleaseRepository extends JpaRepository<Rec
     );
 
     /**
+     * Ocorrências liberadas de várias séries num intervalo de datas (listagem do admin, sem N+1).
+     */
+    @Query("""
+        SELECT new br.dev.guisleri.agendaarena.reservation.repository.ReleasedOccurrence(
+            rel.recurringReservation.id, rel.occurrenceDate
+        )
+        FROM RecurringReservationRelease rel
+        WHERE rel.recurringReservation.id IN :recurringReservationIds
+          AND rel.occurrenceDate BETWEEN :fromDate AND :toDate
+        """)
+    List<ReleasedOccurrence> findReleasedOccurrences(
+            @Param("recurringReservationIds") Collection<Long> recurringReservationIds,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate
+    );
+
+    /**
      * Datas liberadas de uma série num intervalo (listagem de ocorrências, sem N+1).
      */
     @Query("""

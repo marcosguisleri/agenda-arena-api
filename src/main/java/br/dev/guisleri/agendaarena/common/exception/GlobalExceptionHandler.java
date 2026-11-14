@@ -4,6 +4,8 @@ import br.dev.guisleri.agendaarena.auth.exception.InvalidCredentialsException;
 import br.dev.guisleri.agendaarena.auth.exception.InvalidRefreshTokenException;
 import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
+import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentPixKeyNotConfiguredException;
+import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentPixKeyNotFoundException;
 import br.dev.guisleri.agendaarena.match.exception.FieldPlayerLimitReachedException;
 import br.dev.guisleri.agendaarena.match.exception.GoalkeeperLimitReachedException;
 import br.dev.guisleri.agendaarena.match.exception.MatchInvalidStateException;
@@ -386,6 +388,28 @@ public class GlobalExceptionHandler {
     ) {
         return createErrorResponse(
                 HttpStatus.UNAUTHORIZED,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(EstablishmentPixKeyNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleEstablishmentPixKeyNotFoundException(
+            EstablishmentPixKeyNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(EstablishmentPixKeyNotConfiguredException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleEstablishmentPixKeyNotConfiguredException(
+            EstablishmentPixKeyNotConfiguredException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
                 exception.getMessage(),
                 Map.of()
         );

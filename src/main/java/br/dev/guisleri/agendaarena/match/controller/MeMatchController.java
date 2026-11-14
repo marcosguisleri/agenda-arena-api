@@ -5,7 +5,7 @@ import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPaymentRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPaysShareRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantPositionRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeParticipantTeamRequestDTO;
-import br.dev.guisleri.agendaarena.match.dto.ChangePixKeyRequestDTO;
+import br.dev.guisleri.agendaarena.match.dto.MatchPixRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeTeamSettingsRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.ChangeTeamsRequestDTO;
 import br.dev.guisleri.agendaarena.match.dto.MatchResponseDTO;
@@ -157,16 +157,29 @@ public class MeMatchController {
     }
 
     @PutMapping("/pix-key")
-    public ResponseEntity<MatchResponseDTO> changePixKey(
+    public ResponseEntity<MatchResponseDTO> changePix(
             @PathVariable Long matchId,
-            @Valid @RequestBody ChangePixKeyRequestDTO request,
+            @Valid @RequestBody MatchPixRequestDTO request,
             Authentication authentication
     ) {
         return ResponseEntity.ok(MatchResponseDTO.fromDetails(
-                matchService.changePixKey(
+                matchService.changePix(
                         AuthenticatedUsers.userId(authentication),
                         matchId,
-                        request.pixKey()
+                        request.toChoice()
+                )
+        ));
+    }
+
+    @DeleteMapping("/pix-key")
+    public ResponseEntity<MatchResponseDTO> removePix(
+            @PathVariable Long matchId,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(MatchResponseDTO.fromDetails(
+                matchService.removePix(
+                        AuthenticatedUsers.userId(authentication),
+                        matchId
                 )
         ));
     }

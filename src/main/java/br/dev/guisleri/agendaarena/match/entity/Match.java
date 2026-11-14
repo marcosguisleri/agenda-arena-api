@@ -2,7 +2,9 @@ package br.dev.guisleri.agendaarena.match.entity;
 
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
 import br.dev.guisleri.agendaarena.match.model.MatchTeam;
+import br.dev.guisleri.agendaarena.match.model.PixSource;
 import br.dev.guisleri.agendaarena.match.model.ShirtColor;
+import br.dev.guisleri.agendaarena.pix.entity.PixKey;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.schedule.entity.ScheduleSlot;
@@ -81,10 +83,15 @@ public class Match {
     private Instant createdAt;
 
     /**
-     * Chave Pix só exibida na página; o pagamento acontece fora da plataforma.
+     * Chave Pix só exibida na página (cópia da do estabelecimento ou do organizador); o
+     * pagamento acontece fora da plataforma. Nula quando a partida não tem Pix.
      */
-    @Column(name = "pix_key", length = 140)
-    private String pixKey;
+    @Embedded
+    private PixKey pix;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pix_source", length = 20)
+    private PixSource pixSource;
 
     @Column(name = "closed_at")
     private Instant closedAt;
@@ -205,8 +212,14 @@ public class Match {
         return team == MatchTeam.A ? teamAShirtColor : teamBShirtColor;
     }
 
-    public void changePixKey(String pixKey) {
-        this.pixKey = pixKey;
+    public void changePix(PixSource source, PixKey pix) {
+        this.pixSource = source;
+        this.pix = pix;
+    }
+
+    public void clearPix() {
+        this.pixSource = null;
+        this.pix = null;
     }
 
     public Long getId() {
@@ -261,8 +274,12 @@ public class Match {
         return createdAt;
     }
 
-    public String getPixKey() {
-        return pixKey;
+    public PixKey getPix() {
+        return pix;
+    }
+
+    public PixSource getPixSource() {
+        return pixSource;
     }
 
     public Instant getClosedAt() {

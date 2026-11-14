@@ -47,7 +47,9 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -459,6 +461,15 @@ class EstablishmentAuthorizationIntegrationTests {
                         get("/establishments/{e}/sports-fields/{f}/agenda",
                                 t.establishmentId(), t.sportFieldId())
                                 .param("date", d.toString())),
+                Endpoint.establishmentLevel("PUT establishment pix-key", 200, (t, d) ->
+                        put("/establishments/{e}/pix-key", t.establishmentId())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"keyType\":\"EMAIL\",\"key\":\"pix@arena.com\","
+                                        + "\"holderName\":\"Arena Central Ltda\"}")),
+                Endpoint.establishmentLevel("GET establishment pix-key", 0, (t, d) ->
+                        get("/establishments/{e}/pix-key", t.establishmentId())),
+                Endpoint.establishmentLevel("DELETE establishment pix-key", 204, (t, d) ->
+                        delete("/establishments/{e}/pix-key", t.establishmentId())),
                 Endpoint.establishmentLevel("POST sports-fields", 201, (t, d) ->
                         post("/establishments/{e}/sports-fields", t.establishmentId())
                                 .contentType(MediaType.APPLICATION_JSON)

@@ -1,9 +1,13 @@
 package br.dev.guisleri.agendaarena.common.config;
 
+import br.dev.guisleri.agendaarena.common.ratelimit.ClientIpResolver;
+import br.dev.guisleri.agendaarena.common.ratelimit.RateLimitFilter;
+import br.dev.guisleri.agendaarena.common.ratelimit.TokenBucketRateLimiter;
 import br.dev.guisleri.agendaarena.common.security.AuthenticatedUsers;
 import br.dev.guisleri.agendaarena.common.security.EstablishmentAccessAuthorization;
 import br.dev.guisleri.agendaarena.common.security.SecurityErrorHandler;
 import jakarta.servlet.DispatcherType;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,6 +22,8 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.filter.CorsFilter;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
  * Segurança da API: JWT stateless (Bearer) e isolamento entre estabelecimentos.
@@ -27,14 +33,17 @@ import org.springframework.security.web.SecurityFilterChain;
  * restrita aos administradores daquele estabelecimento.
  */
 @Configuration
-@EnableConfigurationProperties(AppSecurityProperties.class)
+@EnableConfigurationProperties({AppSecurityProperties.class, AppRateLimitProperties.class})
 public class SecurityConfig {
 
     /**
      * Catálogo público: leitura de estabelecimentos, quadras, horários e disponibilidade.
      * Não contém dados de clientes nem de reservas.
      */
-    private static final String[] PUBLIC_GET_PATTERNS = {
+    /**
+     * Leituras públicas do catálogo (também usadas pelo limitador de requisições).
+     */
+    public static final String[] PUBLIC_GET_PATTERNS = {
             "/establishments",
             "/establishments/{establishmentId}",
             "/establishments/{establishmentId}/sports-fields",
@@ -84,10 +93,23 @@ public class SecurityConfig {
             JwtDecoder jwtDecoder,
             JwtAuthenticationConverter jwtAuthenticationConverter,
             SecurityErrorHandler errorHandler,
-            EstablishmentAccessAuthorization establishmentAccess
+            EstablishmentAccessAuthorization establishmentAccess,
+            TokenBucketRateLimiter rateLimiter,
+            ClientIpResolver clientIpResolver,
+            AppRateLimitProperties rateLimitProperties,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver
     ) throws Exception {
         http
                 .cors(Customizer.withDefaults())
+                .addFilterAfter(
+                        new RateLimitFilter(
+                                rateLimiter,
+                                clientIpResolver,
+                                rateLimitProperties,
+                                exceptionResolver
+                        ),
+                        CorsFilter.class
+                )
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -108,7 +130,11 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 
                         // Públicas
-                        .requestMatchers(HttpMethod.POST, "/auth/login", "/users").permitAll()
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/auth/login", "/auth/refresh", "/auth/logout", "/users"
+                        )
+                        .permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_PATTERNS).permitAll()
                         .requestMatchers(HttpMethod.GET, API_DOCS_PATTERNS).permitAll()
 

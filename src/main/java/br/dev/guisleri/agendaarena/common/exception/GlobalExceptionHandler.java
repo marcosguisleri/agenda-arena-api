@@ -1,8 +1,11 @@
 package br.dev.guisleri.agendaarena.common.exception;
 
 import br.dev.guisleri.agendaarena.auth.exception.InvalidCredentialsException;
+import br.dev.guisleri.agendaarena.auth.exception.InvalidRefreshTokenException;
 import br.dev.guisleri.agendaarena.availability.exception.AvailabilityNotAllowedException;
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentNotFoundException;
+import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentPixKeyNotConfiguredException;
+import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentPixKeyNotFoundException;
 import br.dev.guisleri.agendaarena.match.exception.FieldPlayerLimitReachedException;
 import br.dev.guisleri.agendaarena.match.exception.GoalkeeperLimitReachedException;
 import br.dev.guisleri.agendaarena.match.exception.MatchInvalidStateException;
@@ -382,6 +385,57 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ApiErrorResponseDTO> handleInvalidCredentialsException(
             InvalidCredentialsException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleTooManyRequestsException(
+            TooManyRequestsException exception
+    ) {
+        HttpStatus status = HttpStatus.TOO_MANY_REQUESTS;
+
+        return ResponseEntity
+                .status(status)
+                .header("Retry-After", String.valueOf(exception.getRetryAfterSeconds()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ApiErrorResponseDTO(
+                        status.value(),
+                        status.getReasonPhrase(),
+                        exception.getMessage(),
+                        Map.of()
+                ));
+    }
+
+    @ExceptionHandler(EstablishmentPixKeyNotFoundException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleEstablishmentPixKeyNotFoundException(
+            EstablishmentPixKeyNotFoundException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(EstablishmentPixKeyNotConfiguredException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleEstablishmentPixKeyNotConfiguredException(
+            EstablishmentPixKeyNotConfiguredException exception
+    ) {
+        return createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                Map.of()
+        );
+    }
+
+    @ExceptionHandler(InvalidRefreshTokenException.class)
+    public ResponseEntity<ApiErrorResponseDTO> handleInvalidRefreshTokenException(
+            InvalidRefreshTokenException exception
     ) {
         return createErrorResponse(
                 HttpStatus.UNAUTHORIZED,

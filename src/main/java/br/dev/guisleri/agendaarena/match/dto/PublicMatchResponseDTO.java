@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.match.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import br.dev.guisleri.agendaarena.match.entity.Match;
 import br.dev.guisleri.agendaarena.match.entity.MatchParticipant;
 import br.dev.guisleri.agendaarena.match.model.MatchStatus;
@@ -26,6 +27,8 @@ public record PublicMatchResponseDTO(
         LocalTime startTime,
         LocalTime endTime,
         BigDecimal price,
+        MatchPixResponseDTO pix,
+        @Schema(deprecated = true, description = "Obsoleto: use pix.key. Será removido quando o front migrar.")
         String pixKey,
         Instant teamsUpdatedAt,
         long fieldPlayerCount,
@@ -48,7 +51,8 @@ public record PublicMatchResponseDTO(
                 match.getStartTime(),
                 match.getEndTime(),
                 match.getPrice(),
-                match.getPixKey(),
+                MatchPixResponseDTO.fromMatch(match),
+                match.getPix() != null ? match.getPix().getKeyValue() : null,
                 match.getTeamsUpdatedAt(),
                 MatchResponseDTO.count(participants, PlayerPosition.FIELD),
                 MatchResponseDTO.count(participants, PlayerPosition.GOALKEEPER),

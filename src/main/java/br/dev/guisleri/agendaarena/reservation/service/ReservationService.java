@@ -307,6 +307,33 @@ public class ReservationService {
     }
 
     /**
+     * O estabelecimento corrige uma marcação de "concluída" ou "não compareceu": a reserva volta a
+     * ficar confirmada. Trava o horário antes de ler o estado, como as demais transições.
+     */
+    @Transactional
+    public Reservation reopenReservation(
+            Long establishmentId,
+            Long sportFieldId,
+            Long scheduleSlotId,
+            Long reservationId
+    ) {
+        scheduleSlotService.findScheduleSlotForUpdate(
+                establishmentId,
+                sportFieldId,
+                scheduleSlotId
+        );
+
+        Reservation reservation =
+                reservationRepository
+                        .findByIdAndScheduleSlotId(reservationId, scheduleSlotId)
+                        .orElseThrow(() -> reservationNotFound(reservationId));
+
+        reservation.reopen();
+
+        return reservationRepository.saveAndFlush(reservation);
+    }
+
+    /**
      * Único ponto da regra de prazo para pedir cancelamento. Hoje: enquanto o horário não começou.
      * Quando o produto definir uma antecedência mínima (ex.: 24h), é só mudar aqui.
      */

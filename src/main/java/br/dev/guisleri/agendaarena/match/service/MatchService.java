@@ -3,6 +3,7 @@ package br.dev.guisleri.agendaarena.match.service;
 import br.dev.guisleri.agendaarena.common.exception.ValidationFailedException;
 import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.exception.EstablishmentPixKeyNotConfiguredException;
+import br.dev.guisleri.agendaarena.common.time.StartTimeChecker;
 import br.dev.guisleri.agendaarena.match.entity.Match;
 import br.dev.guisleri.agendaarena.match.entity.MatchParticipant;
 import br.dev.guisleri.agendaarena.match.exception.FieldPlayerLimitReachedException;
@@ -36,8 +37,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -68,6 +67,7 @@ public class MatchService {
     private final RecurringReservationReleaseRepository recurringReservationReleaseRepository;
     private final MatchTokenGenerator matchTokenGenerator;
     private final Clock clock;
+    private final StartTimeChecker startTimeChecker;
     private final RandomGenerator randomGenerator;
 
     public MatchService(
@@ -79,6 +79,7 @@ public class MatchService {
             RecurringReservationReleaseRepository recurringReservationReleaseRepository,
             MatchTokenGenerator matchTokenGenerator,
             Clock clock,
+            StartTimeChecker startTimeChecker,
             RandomGenerator randomGenerator
     ) {
         this.matchRepository = matchRepository;
@@ -89,6 +90,7 @@ public class MatchService {
         this.recurringReservationReleaseRepository = recurringReservationReleaseRepository;
         this.matchTokenGenerator = matchTokenGenerator;
         this.clock = clock;
+        this.startTimeChecker = startTimeChecker;
         this.randomGenerator = randomGenerator;
     }
 
@@ -131,7 +133,7 @@ public class MatchService {
             );
         }
 
-        if (hasStarted(reservation.getReservationDate(), reservation.getStartTime())) {
+        if (startTimeChecker.hasStarted(reservation.getReservationDate(), reservation.getStartTime())) {
             throw new ReservationNotEligibleForMatchException("Reservation has already started");
         }
 
@@ -200,7 +202,7 @@ public class MatchService {
             throw new ReservationNotEligibleForMatchException("Occurrence was released");
         }
 
-        if (hasStarted(occurrenceDate, slot.getStartTime())) {
+        if (startTimeChecker.hasStarted(occurrenceDate, slot.getStartTime())) {
             throw new ReservationNotEligibleForMatchException("Occurrence has already started");
         }
 
@@ -751,7 +753,7 @@ public class MatchService {
             throw new MatchRegistrationNotAllowedException(cancelledMessage(match));
         }
 
-        if (hasStarted(match.getDate(), match.getStartTime())) {
+        if (startTimeChecker.hasStarted(match.getDate(), match.getStartTime())) {
             throw new MatchRegistrationNotAllowedException("Match has already started");
         }
     }
@@ -783,9 +785,6 @@ public class MatchService {
                 : "Occurrence was released";
     }
 
-    private boolean hasStarted(LocalDate date, LocalTime startTime) {
-        return !LocalDateTime.of(date, startTime).isAfter(LocalDateTime.now(clock));
-    }
 
     /**
      * Chamado com a partida travada: a contagem não muda até o fim da transação.

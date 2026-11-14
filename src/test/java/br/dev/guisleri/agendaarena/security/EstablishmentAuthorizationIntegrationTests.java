@@ -470,6 +470,10 @@ class EstablishmentAuthorizationIntegrationTests {
                         get("/establishments/{e}/pix-key", t.establishmentId())),
                 Endpoint.establishmentLevel("DELETE establishment pix-key", 204, (t, d) ->
                         delete("/establishments/{e}/pix-key", t.establishmentId())),
+                Endpoint.establishmentLevel("GET reservations list", 200, (t, d) ->
+                        get("/establishments/{e}/reservations", t.establishmentId())),
+                Endpoint.establishmentLevel("GET recurring-reservations list", 200, (t, d) ->
+                        get("/establishments/{e}/recurring-reservations", t.establishmentId())),
                 Endpoint.establishmentLevel("POST sports-fields", 201, (t, d) ->
                         post("/establishments/{e}/sports-fields", t.establishmentId())
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -515,7 +519,9 @@ class EstablishmentAuthorizationIntegrationTests {
                 Endpoint.of("POST reservation complete", 0, (t, d) ->
                         post(slotPath(t) + "/reservations/{id}/complete", t.reservationId())),
                 Endpoint.of("POST reservation no-show", 0, (t, d) ->
-                        post(slotPath(t) + "/reservations/{id}/no-show", t.reservationId()))
+                        post(slotPath(t) + "/reservations/{id}/no-show", t.reservationId())),
+                Endpoint.of("POST reservation reopen", 0, (t, d) ->
+                        post(slotPath(t) + "/reservations/{id}/reopen", t.reservationId()))
         );
     }
 

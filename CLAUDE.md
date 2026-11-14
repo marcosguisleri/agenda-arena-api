@@ -46,6 +46,9 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 2. **Reserva de horário**: todo fluxo que cria reserva (avulsa online/manual ou recorrente) primeiro obtém o
    `ScheduleSlot` com **lock pessimista** (`ScheduleSlotService.findBookableScheduleSlotForUpdate`) e só então valida
    (data no passado, dia da semana igual ao do slot, ocupação). Não mover validações para antes do lock.
+   Janela de datas (`ReservationPolicyProperties`, `app.reservation.*`): a reserva **online** vale de agora até hoje+14 dias e nunca em horário
+   que já começou; a **manual** (admin) pode ser retroativa, inclusive hoje em horário passado, até 30 dias atrás, e não tem limite à frente.
+   A disponibilidade pública também recusa data além de hoje+14.
 3. **O banco é a última barreira**: índice único parcial `idx_unique_active_reservation` (reservas CONFIRMED, CANCELLATION_REQUESTED, COMPLETED e NO_SHOW — V12) e
    `EXCLUDE USING gist` `ex_recurring_reservations_no_overlap` (recorrências). `DataIntegrityViolationException`
    é convertida em exceção de domínio (409) olhando o nome da constraint. Mantenha esses nomes estáveis.
@@ -173,7 +176,8 @@ completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas 
 
 Dívidas conhecidas: sem limite de requisições nem regeneração do token no link público
 da partida; visão somente leitura da partida para o admin;
-paginação em `/me/reservations`; listagem de reservas por estabelecimento para o painel do admin (hoje só via agenda do dia);
+paginação em `/me/reservations` (já existe `common/dto/PageResponseDTO` + `PageRequests` para reaproveitar); índice `(schedule_slot_id, reservation_date)`
+em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP); listagem de bloqueios para o admin;
 sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
 e limite de requisições em `/auth/*`; o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
 
@@ -184,8 +188,10 @@ Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigida
   código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
 - `MatchService.isSourceCancelled` consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
   por transação.
-- "O horário de hoje já começou?" está em 3 lugares com expressões diferentes (`RecurringOccurrenceService`, `MatchService.hasStarted`,
-  `RecurringReservationService.validateOccurrenceCanBeReleased`): extrair um helper com `Clock`.
+- "O horário já começou?" agora tem helper (`common/time/StartTimeChecker`, usado por `MatchService`, `RecurringOccurrenceService` e
+  `RecurringReservationService`). Ainda repetem a mesma expressão, sem o helper: `ReservationService` (pedido de cancelamento,
+  concluir/não compareceu — essas duas com sentido invertido —, e `findReservableScheduleSlot`), `AvailabilityService` (filtro de hoje)
+  e `SlotBlockService.validateBlockDate`.
 - `@EntityGraph` repetido em 4 finders do `MatchRepository` (usar `@NamedEntityGraph`); `MatchService.readyForView` roda uma consulta só
   pelo efeito colateral de carregar o grafo.
 
@@ -290,7 +296,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Liberação de ocorrência | **implementado e testado** (fatia 1, 30/10/2026): service com lock do slot, endpoint, ocupação com `NOT EXISTS` | `RecurringReservationService.releaseOccurrence`, `RecurringReservationReleaseIntegrationTests` |
 | Bloqueios administrativos (uma data por vez) + cancelar e manter bloqueado (`?keepBlocked=true`) | **implementado e testado** (fatia 3, 30/10/2026): V9 `slot_blocks`, `SlotBlock` no pacote `reservation`, lock do slot, entra na ocupação; bloqueio não sobrescreve reserva/recorrência (409) | `SlotBlockService`, `SlotBlockController`, `SlotBlockIntegrationTests` |
 | Cancelamento pelo admin (`CONFIRMED`→`CANCELLED`) | **implementado e testado** (fatia 2, 30/10/2026): `POST .../reservations/{id}/cancel`, lock do slot, sem exigir slot ativo | `ReservationService.cancelReservation`, `ReservationCancellationIntegrationTests` |
-| Concluída (`COMPLETED`) e não compareceu (`NO_SHOW`) | **implementado e testado** (fatia 4, 30/10/2026): V10 recria CHECK e índice único; `POST .../reservations/{id}/complete` e `/no-show` só de `CONFIRMED` e só a partir do horário de início (`Clock`), sob lock do slot; continuam ocupando o horário; só `CONFIRMED` pode ser cancelada | `ReservationService.completeReservation/markReservationAsNoShow`, `ReservationStatusTransitionIntegrationTests` |
+| Concluída (`COMPLETED`) e não compareceu (`NO_SHOW`) | **implementado e testado** (fatia 4, 30/10/2026): V10 recria CHECK e índice único; `POST .../reservations/{id}/complete` e `/no-show` só de `CONFIRMED` e só a partir do horário de início (`Clock`), sob lock do slot; continuam ocupando o horário; só `CONFIRMED` pode ser cancelada | `ReservationService.completeReservation/markReservationAsNoShow`, `ReservationStatusTransitionIntegrationTests`; correção do admin: `POST .../reservations/{id}/reopen` volta COMPLETED/NO_SHOW para CONFIRMED, sob lock do slot (`ReservationService.reopenReservation`) |
 | Consulta de reserva por id e agenda do admin por campo/dia (`GET .../reservations/{id}`, `GET .../sports-fields/{id}/agenda?date=`) | **implementado e testado** (fatia 5, 30/10/2026): leitura sem lock; agenda com status FREE/RESERVED/RECURRING/BLOCKED (precedência nessa ordem), `recurring.released` indica ocorrência liberada; datas passadas permitidas | `AgendaService`, `ReservationService.findReservation`, `ReservationQueryIntegrationTests` |
 | Solicitação de cancelamento pelo organizador (`CANCELLATION_REQUESTED`) | **implementado e testado** (30/10/2026): V12; `POST /me/reservations/{id}/cancellation-request` (só `CONFIRMED`, só antes do início — único ponto do prazo: `ReservationService.ensureCancellationCanBeRequested`); continua ocupando o horário; admin aprova com o `/cancel` existente ou recusa com `POST .../reservations/{id}/refuse-cancellation` (volta a `CONFIRMED`) | `Reservation.requestCancellation/refuseCancellationRequest`, `MyReservationIntegrationTests` |
 | "Minhas reservas" (`GET /me/reservations`, `GET /me/reservations/{id}`) | **implementado e testado**: só as do usuário do token; de outro → 404; sem paginação ainda | `MeReservationController`, `MyReservationIntegrationTests` |
@@ -302,6 +308,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Chave Pix do estabelecimento + escolha na partida (tipo, titular, banco) | **implementado e testado** (14/11/2026): V21 (descarta as chaves antigas em texto livre), `PixKey` validado por tipo, cópia para a partida, `pix` no lugar de `pixKey` nas respostas | `PixKeyTests`, `EstablishmentPixKeyIntegrationTests`, `MatchPixIntegrationTests` |
 | Partida: times A/B (manual + sorteio), nome/cor, resumo; sem "finalizar" | **implementado e testado** (fatia 4): V17; `MatchTeamDrawer` | `MatchTeamsIntegrationTests`, `MatchTeamDrawerTests` |
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
+| Listagem do admin: reservas e séries recorrentes (paginadas) | **implementado e testado** (14/11/2026): `GET /establishments/{e}/reservations` (`from`/`to` padrão hoje..+30 e máx. 92 dias, `sportFieldId`, `status` repetível, `origin`, `page`/`size` máx. 100; ordem fixa data/horário/id; traz contato de quem reservou) e `GET /establishments/{e}/recurring-reservations` (`status` ACTIVE/UPCOMING/ENDED, padrão sem encerradas; `sportFieldId`, `hasOrganizer`); só leitura, sem lock; ambas em `managementEndpoints()` | `AdminReservationListService`, `AdminRecurringReservationListService`, `AdminReservationListIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever
 migrations aplicadas e não alterar concorrência sem análise e testes.

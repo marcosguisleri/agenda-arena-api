@@ -1,5 +1,6 @@
 package br.dev.guisleri.agendaarena.reservation.service;
 
+import br.dev.guisleri.agendaarena.common.time.StartTimeChecker;
 import br.dev.guisleri.agendaarena.match.repository.MatchRepository;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservation;
 import br.dev.guisleri.agendaarena.reservation.entity.RecurringReservationRelease;
@@ -26,7 +27,6 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZonedDateTime;
 import java.util.List;
 
 @Service
@@ -41,6 +41,7 @@ public class RecurringReservationService {
     private final MatchRepository matchRepository;
     private final ScheduleSlotRepository scheduleSlotRepository;
     private final Clock clock;
+    private final StartTimeChecker startTimeChecker;
 
     public RecurringReservationService(
             ReservationRepository reservationRepository,
@@ -51,7 +52,8 @@ public class RecurringReservationService {
             SlotBlockRepository slotBlockRepository,
             MatchRepository matchRepository,
             ScheduleSlotRepository scheduleSlotRepository,
-            Clock clock
+            Clock clock,
+            StartTimeChecker startTimeChecker
     ) {
         this.reservationRepository = reservationRepository;
         this.recurringReservationRepository = recurringReservationRepository;
@@ -62,6 +64,7 @@ public class RecurringReservationService {
         this.matchRepository = matchRepository;
         this.scheduleSlotRepository = scheduleSlotRepository;
         this.clock = clock;
+        this.startTimeChecker = startTimeChecker;
     }
 
     @Transactional
@@ -361,8 +364,7 @@ public class RecurringReservationService {
             ScheduleSlot scheduleSlot,
             LocalDate occurrenceDate
     ) {
-        ZonedDateTime now = ZonedDateTime.now(clock);
-        LocalDate currentDate = now.toLocalDate();
+        LocalDate currentDate = LocalDate.now(clock);
 
         if (occurrenceDate.isBefore(currentDate)) {
             throw new RecurringReservationNotAllowedException(
@@ -372,8 +374,7 @@ public class RecurringReservationService {
 
         ensureDateIsOccurrenceOfSeries(recurringReservation, occurrenceDate);
 
-        if (occurrenceDate.equals(currentDate)
-                && !scheduleSlot.getStartTime().isAfter(now.toLocalTime())) {
+        if (startTimeChecker.hasStarted(occurrenceDate, scheduleSlot.getStartTime())) {
             throw new RecurringReservationNotAllowedException(
                     "Occurrence time cannot be in the past"
             );

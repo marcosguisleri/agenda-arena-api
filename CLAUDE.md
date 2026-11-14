@@ -19,6 +19,8 @@ docker compose up -d                       # Postgres local (usa .env; modelo em
 ./mvnw test -Dtest=ReservationIntegrationTests   # um arquivo de testes (preferir durante o trabalho)
 ./mvnw test                                # suíte completa (lenta: um container por classe de teste)
 ./mvnw checkstyle:check                    # estilo; avisos, não falha o build
+./scripts/seed-demo.sh                     # dados de demonstração (idempotente; precisa da API no ar)
+./scripts/smoke-test.sh                    # fluxo completo contra a API rodando (ver README)
 ```
 
 ## Arquitetura (não reescrever)

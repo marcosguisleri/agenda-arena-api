@@ -46,6 +46,9 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 2. **Reserva de horário**: todo fluxo que cria reserva (avulsa online/manual ou recorrente) primeiro obtém o
    `ScheduleSlot` com **lock pessimista** (`ScheduleSlotService.findBookableScheduleSlotForUpdate`) e só então valida
    (data no passado, dia da semana igual ao do slot, ocupação). Não mover validações para antes do lock.
+   Janela de datas (`ReservationPolicyProperties`, `app.reservation.*`): a reserva **online** vale de agora até hoje+14 dias e nunca em horário
+   que já começou; a **manual** (admin) pode ser retroativa, inclusive hoje em horário passado, até 30 dias atrás, e não tem limite à frente.
+   A disponibilidade pública também recusa data além de hoje+14.
 3. **O banco é a última barreira**: índice único parcial `idx_unique_active_reservation` (reservas CONFIRMED, CANCELLATION_REQUESTED, COMPLETED e NO_SHOW — V12) e
    `EXCLUDE USING gist` `ex_recurring_reservations_no_overlap` (recorrências). `DataIntegrityViolationException`
    é convertida em exceção de domínio (409) olhando o nome da constraint. Mantenha esses nomes estáveis.

@@ -70,7 +70,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Banco de dados e migrations
 
-- Flyway em `src/main/resources/db/migration` (V1…V17 existentes). **Nunca edite uma migration já existente**
+- Flyway em `src/main/resources/db/migration` (V1…V19 existentes). **Nunca edite uma migration já existente**
   (nem formatação). Mudança de schema = nova migration `V<n+1>__descricao.sql`.
 - `spring.jpa.hibernate.ddl-auto=validate`: nome de tabela/coluna/tipo da entidade precisa bater com a migration,
   senão a aplicação não sobe e os testes falham.
@@ -182,7 +182,6 @@ Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigida
   `RecurringReservationService.validateOccurrenceCanBeReleased`): extrair um helper com `Clock`.
 - `@EntityGraph` repetido em 4 finders do `MatchRepository` (usar `@NamedEntityGraph`); `MatchService.readyForView` roda uma consulta só
   pelo efeito colateral de carregar o grafo.
-- Falta índice em `matches.schedule_slot_id` (nova migration; a V18 não pode ser editada).
 
 Armadilhas já vistas neste projeto: `target/` velho causa erro estranho (use `./mvnw clean test`); **não compile pelo IntelliJ
 enquanto a suíte roda pelo Maven** (os dois escrevem em `target/` e o contexto falha com beans "sumidos", ex.: `PasswordEncoder`,

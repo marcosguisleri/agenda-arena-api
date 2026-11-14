@@ -4,6 +4,7 @@ import br.dev.guisleri.agendaarena.establishment.entity.Establishment;
 import br.dev.guisleri.agendaarena.establishment.repository.EstablishmentRepository;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.exception.RecurringReservationConflictException;
+import br.dev.guisleri.agendaarena.reservation.exception.ReservationAlreadyExistsException;
 import br.dev.guisleri.agendaarena.reservation.exception.ReservationInvalidStateException;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationStatus;
 import br.dev.guisleri.agendaarena.reservation.repository.RecurringReservationReleaseRepository;
@@ -650,6 +651,121 @@ class ReservationStatusTransitionIntegrationTests {
             assertFutureFailedWith(noShow, ReservationInvalidStateException.class);
 
             assertThat(statusOf(reservation)).isEqualTo(ReservationStatus.COMPLETED);
+        }
+    }
+
+    @Nested
+    @DisplayName("Reopen (admin corrects a completed or no-show mark)")
+    class Reopen {
+
+        @Test
+        void shouldReopenCompletedReservation() throws Exception {
+            Reservation reservation = saveOnline(startedSlot, TODAY);
+            act(startedSlot, reservation, "complete").andExpect(status().isOk());
+
+            act(startedSlot, reservation, "reopen")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(reservation.getId().intValue()))
+                    .andExpect(jsonPath("$.status").value("CONFIRMED"));
+
+            assertThat(statusOf(reservation)).isEqualTo(ReservationStatus.CONFIRMED);
+            assertThat(reservationRepository.count()).isEqualTo(1);
+        }
+
+        @Test
+        void shouldReopenNoShowReservationAndAllowMarkingItAgain() throws Exception {
+            Reservation reservation = saveOnline(startedSlot, TODAY);
+            act(startedSlot, reservation, "no-show").andExpect(status().isOk());
+
+            act(startedSlot, reservation, "reopen").andExpect(status().isOk());
+            assertThat(statusOf(reservation)).isEqualTo(ReservationStatus.CONFIRMED);
+
+            act(startedSlot, reservation, "complete")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("COMPLETED"));
+        }
+
+        @Test
+        void shouldKeepOccupyingTheSlotAfterReopening() throws Exception {
+            Reservation reservation = saveOnline(startedSlot, TODAY);
+            act(startedSlot, reservation, "complete").andExpect(status().isOk());
+            act(startedSlot, reservation, "reopen").andExpect(status().isOk());
+
+            assertThatThrownBy(() -> createManualReservation(startedSlot, TODAY))
+                    .isInstanceOf(ReservationAlreadyExistsException.class);
+        }
+
+        @Test
+        void shouldRejectReopeningReservationThatWasNotMarked() throws Exception {
+            Reservation confirmed = saveOnline(startedSlot, TODAY);
+            act(startedSlot, confirmed, "reopen").andExpect(status().isConflict());
+            assertThat(statusOf(confirmed)).isEqualTo(ReservationStatus.CONFIRMED);
+
+            Reservation cancelled = saveOnline(startingNowSlot, TODAY);
+            act(startingNowSlot, cancelled, "cancel").andExpect(status().isOk());
+            act(startingNowSlot, cancelled, "reopen").andExpect(status().isConflict());
+            assertThat(statusOf(cancelled)).isEqualTo(ReservationStatus.CANCELLED);
+
+            Reservation requested = saveOnline(futureSlot, TODAY);
+            forceStatus(requested, "CANCELLATION_REQUESTED");
+            act(futureSlot, requested, "reopen").andExpect(status().isConflict());
+            assertThat(statusOf(requested))
+                    .isEqualTo(ReservationStatus.CANCELLATION_REQUESTED);
+        }
+
+        @Test
+        void shouldReturnNotFoundWhenReservationBelongsToAnotherSlot() throws Exception {
+            Reservation reservation = saveOnline(startedSlot, TODAY);
+            act(startedSlot, reservation, "complete").andExpect(status().isOk());
+
+            act(futureSlot, reservation, "reopen").andExpect(status().isNotFound());
+
+            assertThat(statusOf(reservation)).isEqualTo(ReservationStatus.COMPLETED);
+        }
+
+        @Test
+        @Timeout(15)
+        void cancellationWaitsForReopenAndThenSeesTheConfirmedReservation()
+                throws Exception {
+            Reservation reservation = saveOnline(startedSlot, TODAY);
+            act(startedSlot, reservation, "no-show").andExpect(status().isOk());
+            CountDownLatch reopened = new CountDownLatch(1);
+            CountDownLatch allowCommit = new CountDownLatch(1);
+
+            Future<?> reopen = executor.submit(() ->
+                    inTransaction(() -> {
+                        reservationService.reopenReservation(
+                                establishment.getId(),
+                                sportField.getId(),
+                                startedSlot.getId(),
+                                reservation.getId()
+                        );
+                        reopened.countDown();
+                        await(allowCommit);
+                    })
+            );
+
+            await(reopened);
+
+            String waitingConnection = "cancel-waits-reopen";
+            Future<?> cancellation = executor.submit(() ->
+                    inNamedTransaction(waitingConnection, () ->
+                            reservationService.cancelReservation(
+                                    establishment.getId(),
+                                    sportField.getId(),
+                                    startedSlot.getId(),
+                                    reservation.getId()
+                            )
+                    )
+            );
+
+            awaitConnectionWaitingForLock(waitingConnection);
+            allowCommit.countDown();
+
+            reopen.get(CONCURRENCY_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+            cancellation.get(CONCURRENCY_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+
+            assertThat(statusOf(reservation)).isEqualTo(ReservationStatus.CANCELLED);
         }
     }
 

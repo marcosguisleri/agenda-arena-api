@@ -147,6 +147,21 @@ public class Reservation {
         this.status = ReservationStatus.COMPLETED;
     }
 
+    /**
+     * Corrige uma marcação feita por engano: "concluída" ou "não compareceu" volta a "confirmada".
+     * As duas já ocupam o horário, então a ocupação não muda.
+     */
+    public void reopen() {
+        if (this.status != ReservationStatus.COMPLETED
+                && this.status != ReservationStatus.NO_SHOW) {
+            throw new ReservationInvalidStateException(
+                    "Only completed or no-show reservations can be reopened"
+            );
+        }
+
+        this.status = ReservationStatus.CONFIRMED;
+    }
+
     public void markNoShow() {
         if (this.status != ReservationStatus.CONFIRMED) {
             throw new ReservationInvalidStateException(

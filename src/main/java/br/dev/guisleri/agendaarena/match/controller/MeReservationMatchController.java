@@ -1,5 +1,7 @@
 package br.dev.guisleri.agendaarena.match.controller;
 
+import br.dev.guisleri.agendaarena.match.dto.CreateMatchRequestDTO;
+import jakarta.validation.Valid;
 import br.dev.guisleri.agendaarena.common.security.AuthenticatedUsers;
 import br.dev.guisleri.agendaarena.match.dto.MatchResponseDTO;
 import br.dev.guisleri.agendaarena.match.service.MatchCreationResult;
@@ -10,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -33,11 +36,13 @@ public class MeReservationMatchController {
     @PostMapping
     public ResponseEntity<MatchResponseDTO> createMatch(
             @PathVariable Long reservationId,
+            @Valid @RequestBody(required = false) CreateMatchRequestDTO request,
             Authentication authentication
     ) {
         MatchCreationResult result = matchService.createMatch(
                 AuthenticatedUsers.userId(authentication),
-                reservationId
+                reservationId,
+                request == null || request.pix() == null ? null : request.pix().toChoice()
         );
 
         return ResponseEntity

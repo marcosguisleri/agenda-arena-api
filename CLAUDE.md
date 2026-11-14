@@ -178,8 +178,10 @@ Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigida
   código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
 - `MatchService.isSourceCancelled` consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
   por transação.
-- "O horário de hoje já começou?" está em 3 lugares com expressões diferentes (`RecurringOccurrenceService`, `MatchService.hasStarted`,
-  `RecurringReservationService.validateOccurrenceCanBeReleased`): extrair um helper com `Clock`.
+- "O horário já começou?" agora tem helper (`common/time/StartTimeChecker`, usado por `MatchService`, `RecurringOccurrenceService` e
+  `RecurringReservationService`). Ainda repetem a mesma expressão, sem o helper: `ReservationService` (pedido de cancelamento,
+  concluir/não compareceu — essas duas com sentido invertido —, e `findReservableScheduleSlot`), `AvailabilityService` (filtro de hoje)
+  e `SlotBlockService.validateBlockDate`.
 - `@EntityGraph` repetido em 4 finders do `MatchRepository` (usar `@NamedEntityGraph`); `MatchService.readyForView` roda uma consulta só
   pelo efeito colateral de carregar o grafo.
 - Falta índice em `matches.schedule_slot_id` (nova migration; a V18 não pode ser editada).

@@ -35,6 +35,7 @@ padrão 20 e máximo 100. A ordem é fixa (data, horário, id) e não vem do cli
 |---|---|
 | `GET /reservations` | `from`, `to` (padrão hoje a +30 dias; máximo 92 dias), `sportFieldId`, `status` (repetível), `origin` (`ONLINE`/`MANUAL`) |
 | `GET /recurring-reservations` | `status` (`ACTIVE`/`UPCOMING`/`ENDED`, repetível; padrão ativas e futuras), `sportFieldId`, `hasOrganizer` |
+| `GET /blocks` | `from`, `to` (como em reservas), `sportFieldId`; cada item traz `sportField` e `scheduleSlot` (com os ids para o `DELETE /establishments/{e}/sports-fields/{f}/schedule-slots/{s}/blocks/{id}` que desbloqueia) |
 | `GET /matches` | `from`, `to` (como em reservas), `sportFieldId`, `status` (`OPEN`/`CLOSED`, repetível) |
 | `GET /matches/{matchId}` | detalhe somente leitura: participantes, cotas, pagamentos, times e totais |
 

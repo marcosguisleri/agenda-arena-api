@@ -196,7 +196,7 @@ Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver l
 Dívidas conhecidas: sem regeneração do token do link público
 da partida (se vazar, não há como trocar);
 índice `(schedule_slot_id, reservation_date)`
-em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP); listagem de bloqueios para o admin;
+em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP);
 sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
 (o limite de requisições existe nas rotas públicas; ver Segurança); o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
 
@@ -360,6 +360,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Partida em ocorrência de recorrência | **implementado e testado** (13/11/2026): V18 (origem dupla), `/me/recurring-reservations`, `.../occurrences`, `.../occurrences/{date}/match`, PATCH de vínculo do admin; ocorrência liberada = partida cancelada; corridas no lock do slot | `MatchService.createOccurrenceMatch`, `RecurringOccurrenceService`, `MatchOccurrenceIntegrationTests`, `MyRecurringReservationIntegrationTests` |
 | E-mails de reserva (confirmação, cancelamento, pedido de cancelamento e recusa; avisos aos admins) | **implementado e testado** (14/11/2026): eventos + listener pós-commit assíncrono, SMTP ou log, Mailpit em dev | `ReservationEmailListener`, `ReservationEmailTemplates`, `ReservationEmailIntegrationTests`, `ReservationEmailAsyncIntegrationTests` |
 | Limite de requisições nas rotas públicas (login, refresh, cadastro, link da partida, catálogo) | **implementado e testado** (14/11/2026): balde de fichas em memória, 429 + `Retry-After`, limite por conta no login, por link na inscrição | `TokenBucketRateLimiter`, `RateLimitFilter`, `RateLimitIntegrationTests`, `RateLimitForwardedHeadersIntegrationTests` |
+| Listagem de bloqueios do admin | **implementado e testado** (16/11/2026): `GET /establishments/{e}/blocks` (`from`/`to` padrão hoje..+30 e máx. 92 dias, `sportFieldId`, `page`/`size`; ordem data/horário/id; traz campo e horário com os ids da rota de desbloqueio `DELETE .../blocks/{id}`); só leitura, sem lock; em `managementEndpoints()` | `AdminSlotBlockListService`, `AdminSlotBlockController`, `AdminSlotBlockListIntegrationTests` |
 | Listagem do admin: reservas e séries recorrentes (paginadas) | **implementado e testado** (14/11/2026): `GET /establishments/{e}/reservations` (`from`/`to` padrão hoje..+30 e máx. 92 dias, `sportFieldId`, `status` repetível, `origin`, `page`/`size` máx. 100; ordem fixa data/horário/id; traz contato de quem reservou) e `GET /establishments/{e}/recurring-reservations` (`status` ACTIVE/UPCOMING/ENDED, padrão sem encerradas; `sportFieldId`, `hasOrganizer`); só leitura, sem lock; ambas em `managementEndpoints()` | `AdminReservationListService`, `AdminRecurringReservationListService`, `AdminReservationListIntegrationTests` |
 | CORS e OpenAPI/Swagger | **implementado e testado** (30/10/2026) | `CorsConfig`, `OpenApiConfig`, `CorsAndApiDocsIntegrationTests` |
 Antes de qualquer item "pendente/parcial": **plano técnico e aprovação** (mudança estrutural). Não recriar módulos, não reescrever

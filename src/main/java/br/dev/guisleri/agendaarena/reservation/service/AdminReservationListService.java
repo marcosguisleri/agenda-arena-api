@@ -2,7 +2,7 @@ package br.dev.guisleri.agendaarena.reservation.service;
 
 import br.dev.guisleri.agendaarena.common.dto.PageRequests;
 import br.dev.guisleri.agendaarena.common.dto.PageResponseDTO;
-import br.dev.guisleri.agendaarena.common.exception.ValidationFailedException;
+import br.dev.guisleri.agendaarena.common.time.AdminDateRange;
 import br.dev.guisleri.agendaarena.establishment.service.EstablishmentService;
 import br.dev.guisleri.agendaarena.reservation.dto.AdminReservationResponseDTO;
 import br.dev.guisleri.agendaarena.reservation.model.ReservationOrigin;
@@ -23,9 +23,6 @@ import java.util.EnumSet;
  */
 @Service
 public class AdminReservationListService {
-
-    public static final int DEFAULT_RANGE_DAYS = 30;
-    public static final int MAX_RANGE_DAYS = 92;
 
     private final ReservationRepository reservationRepository;
     private final EstablishmentService establishmentService;
@@ -65,23 +62,7 @@ public class AdminReservationListService {
             sportFieldService.findSportFieldById(establishmentId, sportFieldId);
         }
 
-        LocalDate resolvedFrom = from != null
-                ? from
-                : to != null ? to.minusDays(DEFAULT_RANGE_DAYS) : LocalDate.now(clock);
-        LocalDate resolvedTo = to != null
-                ? to
-                : resolvedFrom.plusDays(DEFAULT_RANGE_DAYS);
-
-        if (resolvedTo.isBefore(resolvedFrom)) {
-            throw new ValidationFailedException("to", "Date 'to' cannot be before 'from'");
-        }
-
-        if (resolvedTo.isAfter(resolvedFrom.plusDays(MAX_RANGE_DAYS - 1L))) {
-            throw new ValidationFailedException(
-                    "to",
-                    "Period cannot exceed " + MAX_RANGE_DAYS + " days"
-            );
-        }
+        AdminDateRange range = AdminDateRange.resolve(from, to, LocalDate.now(clock));
 
         Collection<ReservationStatus> effectiveStatuses =
                 statuses == null || statuses.isEmpty()
@@ -91,8 +72,8 @@ public class AdminReservationListService {
         return PageResponseDTO.from(
                 reservationRepository.findForAdmin(
                         establishmentId,
-                        resolvedFrom,
-                        resolvedTo,
+                        range.from(),
+                        range.to(),
                         effectiveStatuses,
                         sportFieldId,
                         origin,

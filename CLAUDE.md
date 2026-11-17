@@ -162,16 +162,20 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 
 ## Estado atual e próximo passo (atualizado em 16/11/2026)
 
-Tudo o que a matriz de estado abaixo marca como implementado está **mergeado no `main`** (PRs #8–#18): catálogo, disponibilidade, reserva
-online e manual, recorrência + liberação, bloqueios, cancelamento admin, concluída/não compareceu, agenda e listagens do admin, JWT + papéis +
-isolamento, "minhas reservas", pedido de cancelamento, CORS, OpenAPI, **Partida** (inclusive ocorrência de recorrência, Pix, times e visão do
-admin), e-mails, refresh token e limite de requisições. Migrations até a **V21**. Suíte completa passando em 16/11/2026: **801 testes**
-(`./mvnw clean test`, ~4 min).
+Tudo o que a matriz de estado abaixo marca como implementado está **mergeado no `main`**: catálogo, disponibilidade, reserva online e manual,
+recorrência + liberação, bloqueios, cancelamento admin, concluída/não compareceu, agenda e listagens do admin (reservas, séries, partidas,
+**bloqueios**), JWT + papéis + isolamento, "minhas reservas" (**paginada**), pedido de cancelamento, CORS, OpenAPI, **Partida** (inclusive
+ocorrência de recorrência, Pix, times e visão do admin), e-mails (**com link para o front**), refresh token e limite de requisições. Migrations
+até a **V21**. A API está pronta para o front começar (16/11/2026): `docs/guia-front-pix-e-sessao.md` e `docs/guia-front-outras-mudancas.md`.
 
-**Git**: a branch `chore/local-mvp-smoke-and-readme` (PR #19: README, `scripts/seed-demo.sh`, `scripts/smoke-test.sh`, `docs/guia-front-outras-mudancas.md`)
-é a única à frente do `main`. O smoke test passou **73/73** em 16/11/2026 contra a API local, com `MAIL_ENABLED=true` e Mailpit; sem
-`MAIL_ENABLED`, os 6 passos de e-mail falham de propósito (a API só registra no log). Próximo passo: mergear o PR #19 e escolher entre as
-pendências de produto e as dívidas abaixo.
+**Qualidade**: suíte completa passando (`./mvnw clean test`, ~4 min; a contagem fica no log do CI: eram **851 testes** em 16/11/2026, antes das
+correções do `/code-review` do dia), smoke test **73/73** (`scripts/smoke-test.sh`, com `MAIL_ENABLED=true` e Mailpit; sem `MAIL_ENABLED`, os
+6 passos de e-mail falham de propósito: a API só registra no log). **CI** (`.github/workflows/ci.yml`): roda a suíte em todo PR e em todo push no
+`main`; um push novo num PR cancela a execução anterior, mas no `main` nunca cancela. Proteção de branch (exigir o check verde) ainda não está
+configurada no GitHub.
+
+**Próximo passo**: o front (Angular + Tailwind + PrimeNG, SSR no link da partida e no catálogo público; projeto separado em `../agenda-arena-web`).
+No lado da API restam as decisões abaixo (pendências 3 a 5, lembretes por e-mail) e a infra de produção, que o dono adiou (a API roda local por ora).
 
 **Partida para ocorrências de recorrência (13/11/2026)**: implementada e mergeada; `/code-review` feito (achados aplicados; dívidas restantes abaixo). Desenho aprovado pelo dono:
 - Não cria `Reservation` por ocorrência (duplicaria a ocupação). A partida tem **duas origens**: `reservation_id` **ou**
@@ -199,6 +203,10 @@ da partida (se vazar, não há como trocar);
 em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP);
 sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
 (o limite de requisições existe nas rotas públicas; ver Segurança); o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
+Dívidas do `/code-review` de 16/11/2026 (abertas): (1) **a reserva online feita pelo admin em nome de um usuário (`organizerId`) só checa `isActive()`**,
+não o papel `ORGANIZER`; a série recorrente já exige (decisão do dono, ver abaixo): decidir se a reserva online recebe a mesma regra; (2) sem
+índice para `/me/reservations` (`organizer_id`, data/horário desc): ok no volume do MVP; (3) séries antigas ligadas a quem não é `ORGANIZER` não são
+migradas (a regra vale só para novas gravações).
 
 Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
 - Vínculo de organizador em série recorrente (`createRecurringReservation` com `organizerId` e `PATCH` `linkOrganizer`): **decidido pelo dono em

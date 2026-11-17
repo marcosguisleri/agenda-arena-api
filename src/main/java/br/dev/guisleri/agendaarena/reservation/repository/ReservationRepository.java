@@ -46,9 +46,14 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             Collection<ReservationStatus> statuses
     );
 
+    /**
+     * "Minhas reservas": mais recentes primeiro. O id desempata (data e horário se repetem entre
+     * campos) para a paginação não repetir nem pular itens.
+     */
     @EntityGraph(attributePaths = "scheduleSlot")
-    List<Reservation> findAllByOrganizerIdOrderByReservationDateDescStartTimeDesc(
-            Long organizerId
+    Page<Reservation> findAllByOrganizerIdOrderByReservationDateDescStartTimeDescIdDesc(
+            Long organizerId,
+            Pageable pageable
     );
 
     /**

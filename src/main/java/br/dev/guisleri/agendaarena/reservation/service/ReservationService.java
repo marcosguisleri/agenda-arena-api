@@ -1,6 +1,7 @@
 package br.dev.guisleri.agendaarena.reservation.service;
 
 import br.dev.guisleri.agendaarena.common.config.ReservationPolicyProperties;
+import br.dev.guisleri.agendaarena.common.dto.PageRequests;
 import br.dev.guisleri.agendaarena.reservation.entity.Reservation;
 import br.dev.guisleri.agendaarena.reservation.event.CancellationRefusedEvent;
 import br.dev.guisleri.agendaarena.reservation.event.CancellationRequestedEvent;
@@ -22,6 +23,7 @@ import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.service.UserService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.data.domain.Page;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -31,7 +33,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
-import java.util.List;
 
 @Service
 public class ReservationService {
@@ -240,9 +241,12 @@ public class ReservationService {
     // ---------- Área do organizador ("minhas reservas") ----------
 
     @Transactional(readOnly = true)
-    public List<Reservation> findOrganizerReservations(Long organizerId) {
+    public Page<Reservation> findOrganizerReservations(Long organizerId, int page, int size) {
         return reservationRepository
-                .findAllByOrganizerIdOrderByReservationDateDescStartTimeDesc(organizerId);
+                .findAllByOrganizerIdOrderByReservationDateDescStartTimeDescIdDesc(
+                        organizerId,
+                        PageRequests.of(page, size)
+                );
     }
 
     /**

@@ -201,8 +201,10 @@ sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absolu
 (o limite de requisições existe nas rotas públicas; ver Segurança); o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
 
 Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
-- `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
-  estabelecimento (a criação de recorrência já era assim); decisão do dono: exigir `ORGANIZER`?
+- `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`): **decidido pelo dono em 16/11/2026: exige usuário ativo com papel
+  `ORGANIZER`** (admin do estabelecimento/plataforma → 400 "User is not an organizer"). Ainda sem checar vínculo com o estabelecimento. **A criação
+  de recorrência com `userId` (`createRecurringReservation`) continua aceitando qualquer usuário, sem checar papel nem se está ativo**: pendente
+  decidir se recebe a mesma regra.
 - A regra "não trocar o organizador de série com partida" vive só no service (e cria ciclo de pacotes `reservation` ↔ `match`); outro
   código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
 - `MatchService.isSourceCancelled` (→ `MatchSourceCancellation.isCancelled`) consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez

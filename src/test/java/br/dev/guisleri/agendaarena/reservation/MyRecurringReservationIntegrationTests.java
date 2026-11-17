@@ -411,6 +411,31 @@ class MyRecurringReservationIntegrationTests {
             assertThat(organizerOf(series)).isNull();
         }
 
+        @ParameterizedTest(name = "usuário {0} não pode ser vinculado como organizador")
+        @ValueSource(strings = {"ESTABLISHMENT_ADMIN", "PLATFORM_ADMIN"})
+        void shouldRejectUserThatIsNotAnOrganizer(String role) throws Exception {
+            RecurringReservation series = series(eveningSlot, null, TODAY, null);
+            jdbcTemplate.update("UPDATE users SET role = ? WHERE id = ?", role, organizer.getId());
+
+            link(series, organizer.getId())
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("User is not an organizer"));
+
+            assertThat(organizerOf(series)).isNull();
+        }
+
+        @Test
+        void shouldKeepCurrentOrganizerWhenTheNewUserIsNotAnOrganizer() throws Exception {
+            RecurringReservation series = series(eveningSlot, organizer, TODAY, null);
+            jdbcTemplate.update(
+                    "UPDATE users SET role = 'ESTABLISHMENT_ADMIN' WHERE id = ?",
+                    otherOrganizer.getId());
+
+            link(series, otherOrganizer.getId()).andExpect(status().isBadRequest());
+
+            assertThat(organizerOf(series)).isEqualTo(organizer.getId());
+        }
+
         @Test
         void shouldRequireOrganizerId() throws Exception {
             RecurringReservation series = series(eveningSlot, null, TODAY, null);

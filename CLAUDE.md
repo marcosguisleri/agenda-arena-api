@@ -159,19 +159,20 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
   (`feat(scope): ...`, `fix: ...`, `chore: ...`, `test: ...`), um assunto por commit; a suíte completa precisa passar antes do commit.
 - Não refatorar fora do escopo pedido; mudanças pequenas e revisáveis.
 
-## Estado atual e próximo passo (atualizado em 13/11/2026)
+## Estado atual e próximo passo (atualizado em 16/11/2026)
 
-Concluído e com a suíte completa passando (**559 testes**): catálogo (estabelecimento/campo/slot), disponibilidade, reserva online
-e manual, recorrência + liberação de ocorrência, bloqueios, cancelamento admin (com "manter bloqueado"), concluída/não compareceu,
-consulta por id e agenda do admin, autenticação JWT + papéis + isolamento por estabelecimento, "minhas reservas", pedido de
-cancelamento do organizador, CORS, OpenAPI/Swagger e **Partida (4 fatias, V14–V17)**. Migrations até a **V17**.
+Tudo o que a matriz de estado abaixo marca como implementado está **mergeado no `main`** (PRs #8–#18): catálogo, disponibilidade, reserva
+online e manual, recorrência + liberação, bloqueios, cancelamento admin, concluída/não compareceu, agenda e listagens do admin, JWT + papéis +
+isolamento, "minhas reservas", pedido de cancelamento, CORS, OpenAPI, **Partida** (inclusive ocorrência de recorrência, Pix, times e visão do
+admin), e-mails, refresh token e limite de requisições. Migrations até a **V21**. A contagem de testes (559 em 13/11) não foi refeita
+desde então: rode a suíte completa para obter o número atual.
 
-**Git**: a Partida está na branch `feat/match`, criada a partir de `feat/release-recurring-occurrence` (segurança, minhas reservas,
-CORS e um commit "wip: backup antes de formatar"), que **ainda não foi mergeada no `main`**. Mergear a base antes de abrir o PR
-da `feat/match`, senão o PR leva tudo junto.
+**Git**: a branch `chore/local-mvp-smoke-and-readme` (PR #19: README, `scripts/seed-demo.sh`, `scripts/smoke-test.sh`, `docs/guia-front-outras-mudancas.md`)
+é a única à frente do `main`. O smoke test passou **73/73** em 16/11/2026 contra a API local, com `MAIL_ENABLED=true` e Mailpit; sem
+`MAIL_ENABLED`, os 6 passos de e-mail falham de propósito (a API só registra no log). Próximo passo: mergear o PR #19 e escolher entre as
+pendências de produto e as dívidas abaixo.
 
-**Partida para ocorrências de recorrência (13/11/2026), branch `feat/recurring-match`**: as 4 fatias estão implementadas e a suíte
-completa passou (559 testes). `/code-review` feito (achados aplicados; dívidas restantes abaixo). Falta: PR para `main`. Desenho aprovado pelo dono:
+**Partida para ocorrências de recorrência (13/11/2026)**: implementada e mergeada; `/code-review` feito (achados aplicados; dívidas restantes abaixo). Desenho aprovado pelo dono:
 - Não cria `Reservation` por ocorrência (duplicaria a ocupação). A partida tem **duas origens**: `reservation_id` **ou**
   `recurring_reservation_id + occurrence_date` (`chk_matches_single_source`), e guarda cópia de dono, slot, data, horário e preço (V18).
 - Preço da ocorrência: preço do slot **copiado e congelado** na criação (`Match.forOccurrence`).

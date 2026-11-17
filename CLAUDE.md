@@ -164,8 +164,8 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 Tudo o que a matriz de estado abaixo marca como implementado está **mergeado no `main`** (PRs #8–#18): catálogo, disponibilidade, reserva
 online e manual, recorrência + liberação, bloqueios, cancelamento admin, concluída/não compareceu, agenda e listagens do admin, JWT + papéis +
 isolamento, "minhas reservas", pedido de cancelamento, CORS, OpenAPI, **Partida** (inclusive ocorrência de recorrência, Pix, times e visão do
-admin), e-mails, refresh token e limite de requisições. Migrations até a **V21**. A contagem de testes (559 em 13/11) não foi refeita
-desde então: rode a suíte completa para obter o número atual.
+admin), e-mails, refresh token e limite de requisições. Migrations até a **V21**. Suíte completa passando em 16/11/2026: **801 testes**
+(`./mvnw clean test`, ~4 min).
 
 **Git**: a branch `chore/local-mvp-smoke-and-readme` (PR #19: README, `scripts/seed-demo.sh`, `scripts/smoke-test.sh`, `docs/guia-front-outras-mudancas.md`)
 é a única à frente do `main`. O smoke test passou **73/73** em 16/11/2026 contra a API local, com `MAIL_ENABLED=true` e Mailpit; sem

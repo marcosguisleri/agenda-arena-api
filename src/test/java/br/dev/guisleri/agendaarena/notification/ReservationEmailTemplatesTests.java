@@ -1,6 +1,7 @@
 package br.dev.guisleri.agendaarena.notification;
 
 import br.dev.guisleri.agendaarena.notification.service.EmailMessage;
+import br.dev.guisleri.agendaarena.notification.service.FrontLinks;
 import br.dev.guisleri.agendaarena.notification.service.ReservationEmailTemplates;
 import br.dev.guisleri.agendaarena.reservation.event.ReservationNotice;
 import org.junit.jupiter.api.DisplayName;
@@ -14,7 +15,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ReservationEmailTemplatesTests {
 
-    private final ReservationEmailTemplates templates = new ReservationEmailTemplates();
+    private static final String FRONT = "https://app.agendaarena.test";
+
+    private final ReservationEmailTemplates templates =
+            new ReservationEmailTemplates(new FrontLinks(FRONT + "/"));
 
     private static ReservationNotice notice() {
         return new ReservationNotice(
@@ -112,5 +116,33 @@ class ReservationEmailTemplatesTests {
                 .doesNotContain("\r")
                 .doesNotContain("\n")
                 .isEqualTo("Reserva confirmada: Campo 1 Bcc: alguem@example.com, 26/10 às 19:00");
+    }
+
+    @Test
+    @DisplayName("Todo e-mail do organizador leva o link da reserva no front")
+    void organizerEmailsLinkToTheReservation() {
+        String link = "Ver a reserva: " + FRONT + "/me/reservations/10\n";
+
+        assertThat(templates.confirmedForOrganizer(notice()).body()).contains(link);
+        assertThat(templates.cancelledForOrganizer(notice()).body()).contains(link);
+        assertThat(templates.cancellationRequestedForOrganizer(notice()).body()).contains(link);
+        assertThat(templates.cancellationRefusedForOrganizer(notice()).body()).contains(link);
+    }
+
+    @Test
+    @DisplayName("Todo aviso ao administrador leva o link da reserva no painel")
+    void adminEmailsLinkToTheReservation() {
+        String link = "Ver a reserva: " + FRONT + "/admin/reservations/10\n";
+
+        assertThat(templates.newBookingForAdmin(notice(), "admin@example.com").body())
+                .contains(link);
+        assertThat(templates.cancellationRequestedForAdmin(notice(), "admin@example.com").body())
+                .contains(link);
+    }
+
+    @Test
+    @DisplayName("O link não vai no assunto (que só tem campo, data e horário)")
+    void linkStaysOutOfTheSubject() {
+        assertThat(templates.confirmedForOrganizer(notice()).subject()).doesNotContain("http");
     }
 }

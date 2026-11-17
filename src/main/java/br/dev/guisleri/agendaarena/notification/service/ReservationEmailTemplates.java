@@ -19,6 +19,12 @@ public class ReservationEmailTemplates {
     private static final DateTimeFormatter SHORT_DATE = DateTimeFormatter.ofPattern("dd/MM");
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
+    private final FrontLinks frontLinks;
+
+    public ReservationEmailTemplates(FrontLinks frontLinks) {
+        this.frontLinks = frontLinks;
+    }
+
     // ---------- Organizador ----------
 
     public EmailMessage confirmedForOrganizer(ReservationNotice notice) {
@@ -30,6 +36,7 @@ public class ReservationEmailTemplates {
                         + details(notice) + "\n"
                         + "Para cancelar, faça o pedido pelo Agenda Arena antes do horário. "
                         + "O estabelecimento confirma o cancelamento.\n\n"
+                        + "Ver a reserva: " + frontLinks.organizerReservation(notice.reservationId()) + "\n\n"
                         + signature()
         );
     }
@@ -42,6 +49,7 @@ public class ReservationEmailTemplates {
                         + "Sua reserva foi cancelada pelo estabelecimento.\n\n"
                         + details(notice) + "\n"
                         + "Em caso de dúvida, fale diretamente com o estabelecimento.\n\n"
+                        + "Ver a reserva: " + frontLinks.organizerReservation(notice.reservationId()) + "\n\n"
                         + signature()
         );
     }
@@ -54,6 +62,7 @@ public class ReservationEmailTemplates {
                         + "Recebemos seu pedido de cancelamento. O estabelecimento vai analisar "
                         + "e a reserva continua valendo até a decisão.\n\n"
                         + details(notice) + "\n"
+                        + "Ver a reserva: " + frontLinks.organizerReservation(notice.reservationId()) + "\n\n"
                         + signature()
         );
     }
@@ -67,6 +76,7 @@ public class ReservationEmailTemplates {
                         + "A reserva continua confirmada.\n\n"
                         + details(notice) + "\n"
                         + "Em caso de dúvida, fale diretamente com o estabelecimento.\n\n"
+                        + "Ver a reserva: " + frontLinks.organizerReservation(notice.reservationId()) + "\n\n"
                         + signature()
         );
     }
@@ -81,6 +91,7 @@ public class ReservationEmailTemplates {
                         + customer(notice)
                         + details(notice) + "\n"
                         + "A reserva já está confirmada automaticamente.\n\n"
+                        + "Ver a reserva: " + frontLinks.adminReservation(notice.reservationId()) + "\n\n"
                         + signature()
         );
     }
@@ -98,6 +109,7 @@ public class ReservationEmailTemplates {
                         + details(notice) + "\n"
                         + "A reserva continua valendo até você decidir. Aprove cancelando a "
                         + "reserva ou recuse o pedido pelo painel.\n\n"
+                        + "Ver a reserva: " + frontLinks.adminReservation(notice.reservationId()) + "\n\n"
                         + signature()
         );
     }

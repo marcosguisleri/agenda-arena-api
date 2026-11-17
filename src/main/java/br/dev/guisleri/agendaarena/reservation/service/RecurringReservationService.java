@@ -79,10 +79,6 @@ public class RecurringReservationService {
             LocalDate startDate,
             LocalDate endDate
     ) {
-        User organizer = userId != null
-                ? userService.findUserById(userId)
-                : null;
-
         ScheduleSlot scheduleSlot =
                 scheduleSlotService.findBookableScheduleSlotForUpdate(
                         establishmentId,
@@ -90,7 +86,12 @@ public class RecurringReservationService {
                         scheduleSlotId
                 );
 
-        if (organizer != null) {
+        // O organizador é lido e validado DEPOIS do lock do slot (como o restante das validações),
+        // para o estado de papel/ativo ser o confirmado por quem tinha o lock.
+        User organizer = null;
+
+        if (userId != null) {
+            organizer = userService.findUserById(userId);
             requireActiveOrganizer(organizer);
         }
 
@@ -340,15 +341,17 @@ public class RecurringReservationService {
                                 )
                         );
 
+        User current = recurringReservation.getOrganizer();
+
+        // Reenviar o organizador que já está vinculado não muda nada (idempotente), mesmo que a
+        // conta tenha sido desativada depois: a regra de papel/ativo vale só para quem entra.
+        if (current != null && current.getId().equals(organizerId)) {
+            return recurringReservation;
+        }
+
         User organizer = userService.findUserById(organizerId);
 
         requireActiveOrganizer(organizer);
-
-        User current = recurringReservation.getOrganizer();
-
-        if (current != null && current.getId().equals(organizer.getId())) {
-            return recurringReservation;
-        }
 
         if (current != null
                 && matchRepository.existsByRecurringReservationId(recurringReservationId)) {

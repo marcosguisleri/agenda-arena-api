@@ -61,6 +61,6 @@ precisa fazer nada. A reserva manual não envia e-mail (o cliente não tem conta
 Todo e-mail traz uma linha `Ver a reserva: <url>`. **O front precisa ter estas duas rotas** (a base vem de `FRONT_URL` na API):
 
 - organizador: `/me/reservations/{id}` (detalhe da reserva dele);
-- administrador: `/admin/reservations/{id}` (detalhe da reserva no painel).
+- administrador: `/admin/establishments/{establishmentId}/reservations/{id}` (detalhe da reserva no painel; leva o estabelecimento porque as rotas de gestão da API são por estabelecimento).
 
 Se preferir outros caminhos, avise: eles ficam num só lugar da API (`FrontLinks`).

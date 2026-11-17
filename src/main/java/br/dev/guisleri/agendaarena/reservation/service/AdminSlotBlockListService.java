@@ -2,7 +2,7 @@ package br.dev.guisleri.agendaarena.reservation.service;
 
 import br.dev.guisleri.agendaarena.common.dto.PageRequests;
 import br.dev.guisleri.agendaarena.common.dto.PageResponseDTO;
-import br.dev.guisleri.agendaarena.common.exception.ValidationFailedException;
+import br.dev.guisleri.agendaarena.common.time.AdminDateRange;
 import br.dev.guisleri.agendaarena.establishment.service.EstablishmentService;
 import br.dev.guisleri.agendaarena.reservation.dto.AdminSlotBlockResponseDTO;
 import br.dev.guisleri.agendaarena.reservation.repository.SlotBlockRepository;
@@ -56,32 +56,13 @@ public class AdminSlotBlockListService {
             sportFieldService.findSportFieldById(establishmentId, sportFieldId);
         }
 
-        int defaultRangeDays = AdminReservationListService.DEFAULT_RANGE_DAYS;
-        int maxRangeDays = AdminReservationListService.MAX_RANGE_DAYS;
-
-        LocalDate resolvedFrom = from != null
-                ? from
-                : to != null ? to.minusDays(defaultRangeDays) : LocalDate.now(clock);
-        LocalDate resolvedTo = to != null
-                ? to
-                : resolvedFrom.plusDays(defaultRangeDays);
-
-        if (resolvedTo.isBefore(resolvedFrom)) {
-            throw new ValidationFailedException("to", "Date 'to' cannot be before 'from'");
-        }
-
-        if (resolvedTo.isAfter(resolvedFrom.plusDays(maxRangeDays - 1L))) {
-            throw new ValidationFailedException(
-                    "to",
-                    "Period cannot exceed " + maxRangeDays + " days"
-            );
-        }
+        AdminDateRange range = AdminDateRange.resolve(from, to, LocalDate.now(clock));
 
         return PageResponseDTO.from(
                 slotBlockRepository.findForAdmin(
                         establishmentId,
-                        resolvedFrom,
-                        resolvedTo,
+                        range.from(),
+                        range.to(),
                         sportFieldId,
                         PageRequests.of(page, size)
                 ),

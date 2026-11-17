@@ -16,8 +16,8 @@ class FrontLinksTests {
 
         assertThat(links.organizerReservation(7L))
                 .isEqualTo("https://app.agendaarena.com.br/me/reservations/7");
-        assertThat(links.adminReservation(7L))
-                .isEqualTo("https://app.agendaarena.com.br/admin/reservations/7");
+        assertThat(links.adminReservation(3L, 7L))
+                .isEqualTo("https://app.agendaarena.com.br/admin/establishments/3/reservations/7");
     }
 
     @ParameterizedTest(name = "base \"{0}\" não deixa barra dupla")
@@ -33,7 +33,9 @@ class FrontLinksTests {
 
     @ParameterizedTest(name = "\"{0}\" é recusada na subida")
     @ValueSource(strings = {"", "   ", "localhost:4200", "ftp://app.example.com",
-            "javascript:alert(1)", "https://", "not a url"})
+            "javascript:alert(1)", "https://", "not a url",
+            "https://app.example.com/?env=prod", "https://app.example.com/#",
+            "https://user:pass@app.example.com"})
     void shouldRejectInvalidBaseUrl(String base) {
         assertThatThrownBy(() -> new FrontLinks(base))
                 .isInstanceOf(IllegalStateException.class)

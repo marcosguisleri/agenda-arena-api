@@ -249,6 +249,23 @@ monólito modular, Angular separado consumindo esta API REST.
 - **Cancelamento/estados**: organizador **solicita**, admin confirma; admin cancela e pode bloquear o slot; reserva pode ser
   concluída, cancelada ou "não compareceu" (marcado pelo estabelecimento). Nunca cancelar automaticamente por poucos participantes.
   Estados antigos "aguardando aprovação" em bancos antigos: propor migração com cautela (nova migration).
+  **Prazo (decidido pelo dono em 16/11/2026)**: o organizador pode pedir cancelamento **até o instante do início** (reserva das 16h: às 15:59
+  vale; às 16:00:00 já não). Sem antecedência mínima além disso; a antecedência máxima para reservar é a janela online (hoje..+14 dias).
+  Regra em `ReservationService.ensureCancellationCanBeRequested` (`início > agora`); mudar o prazo = mudar só ali.
+  **Matriz de estados (aceita pelo dono em 16/11/2026; confere com o código)**. Estados: `CONFIRMED`, `CANCELLATION_REQUESTED`, `COMPLETED`,
+  `NO_SHOW`, `CANCELLED`. Todos menos `CANCELLED` ocupam o horário; `CANCELLED` é terminal (não há reabertura).
+  | Transição | Quem | Condição |
+  |---|---|---|
+  | (criação) → `CONFIRMED` | organizador (online) | janela hoje..+14 dias e horário que ainda não começou |
+  | (criação) → `CONFIRMED` | admin (online em nome de usuário, ou manual) | manual: até 30 dias atrás, sem limite à frente |
+  | `CONFIRMED` → `CANCELLATION_REQUESTED` | organizador dono da reserva | só antes do início; repetir o pedido = 409 |
+  | `CANCELLATION_REQUESTED` → `CONFIRMED` | admin (recusa) | sem regra de horário |
+  | `CONFIRMED`/`CANCELLATION_REQUESTED` → `CANCELLED` | admin (`/cancel`, opção `keepBlocked`) | sem regra de horário; aprovar o pedido é este mesmo cancelamento |
+  | `CONFIRMED` → `COMPLETED` ou `NO_SHOW` | admin | só a partir do início; com pedido pendente não conclui |
+  | `COMPLETED`/`NO_SHOW` → `CONFIRMED` (reopen) | admin | correção de marcação; sem regra de horário |
+  Organizador nunca cancela direto (só solicita) nem conclui/marca não compareceu. Cancelar a reserva faz a partida ligada a ela aparecer como
+  cancelada (calculado a partir da origem; a partida em si não muda de estado). Pontos conhecidos, mantidos de propósito: um pedido esquecido continua `CANCELLATION_REQUESTED` depois do
+  jogo e o admin precisa recusar (volta a `CONFIRMED`) para então concluir; o admin pode cancelar uma reserva que já começou.
 - **Papéis**: visitante (consulta pública, sem conta), organizador, jogador convidado (sem conta, por link), administrador do
   estabelecimento. **MVP: uma conta administrativa por estabelecimento, possivelmente compartilhada pela equipe, sem seletor de
   estabelecimento no painel** (configuração operacional, não promessa de segurança). Futuro: funcionários com RBAC e admin global.
@@ -302,7 +319,8 @@ monólito modular, Angular separado consumindo esta API REST.
   renova com `POST /auth/refresh` antes/ao expirar e guarda o refresh token com cuidado (ele é a credencial de 30 dias).
 
 ### Pendente (propor recomendação e aguardar; NÃO presumir)
-1. Antecedência mínima/máxima para reservar e prazo de cancelamento. 2. Matriz final de estados/transições por perfil.
+~~1. Antecedência mínima/máxima e prazo de cancelamento~~ (resolvida em 16/11/2026; ver "Decidido → Cancelamento/estados"). ~~2. Matriz final de
+estados/transições por perfil~~ (aceita pelo dono em 16/11/2026; ver abaixo).
 3. Reconfirmação pré-jogo e lembretes (os e-mails de reserva já existem; ver "Decidido → E-mails"). 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
 gratuito, planos, preços, cobrança, suspensão). ~~6. Sessão, revogação e refresh tokens~~ (resolvida em 14/11/2026). ~~7. Fechar/reabrir organização com
 pagamentos já marcados~~ (resolvida em 13/11/2026; ver "Decidido → Partida").

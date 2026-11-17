@@ -13,6 +13,7 @@ import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.sportfield.entity.SportField;
 import br.dev.guisleri.agendaarena.sportfield.model.SportType;
 import br.dev.guisleri.agendaarena.sportfield.repository.SportFieldRepository;
+import br.dev.guisleri.agendaarena.support.MutableClock;
 import br.dev.guisleri.agendaarena.user.entity.User;
 import br.dev.guisleri.agendaarena.user.model.UserRole;
 import br.dev.guisleri.agendaarena.user.service.UserService;
@@ -21,6 +22,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -39,7 +44,10 @@ import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,14 +59,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * "Minhas reservas" e pedido de cancelamento. Usa tokens reais (relógio do sistema); as datas são
- * calculadas a partir de hoje.
+ * "Minhas reservas" e pedido de cancelamento. Usa tokens reais (o decoder usa o relógio do sistema),
+ * então o relógio da aplicação é um {@link MutableClock} que cada teste reinicia para a hora real;
+ * só os testes de limite do prazo o ajustam (sempre perto da hora real, para o token seguir válido).
  */
 @SpringBootTest
 @Testcontainers
+@Import(MyReservationIntegrationTests.TestClockConfiguration.class)
 class MyReservationIntegrationTests {
 
     private static final String PASSWORD = "password-123";
+    private static final ZoneId SAO_PAULO = ZoneId.of("America/Sao_Paulo");
+    private static final MutableClock TEST_CLOCK = new MutableClock(Instant.now(), SAO_PAULO);
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
@@ -106,6 +118,7 @@ class MyReservationIntegrationTests {
 
     @BeforeEach
     void setUp() {
+        TEST_CLOCK.set(Instant.now());
         jdbcTemplate.execute("TRUNCATE TABLE establishments, users RESTART IDENTITY CASCADE");
 
         mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
@@ -258,6 +271,44 @@ class MyReservationIntegrationTests {
         assertThat(statusOf(reservationId)).isEqualTo(ReservationStatus.CONFIRMED);
     }
 
+    // Prazo: o pedido vale até o instante do início (reserva das 16h: 15:59 vale, 16:00:00 não).
+
+    @Test
+    void shouldAllowRequestingCancellationOneMinuteBeforeTheStart() throws Exception {
+        Instant now = freezeClockAtWholeMinute();
+        long reservationId = reserve(organizer, baseDate);
+        startReservationAt(reservationId, now.plus(1, ChronoUnit.MINUTES));
+
+        requestCancellation(organizer, reservationId).andExpect(status().isOk());
+
+        assertThat(statusOf(reservationId))
+                .isEqualTo(ReservationStatus.CANCELLATION_REQUESTED);
+    }
+
+    @Test
+    void shouldNotAllowRequestingCancellationExactlyAtTheStart() throws Exception {
+        Instant now = freezeClockAtWholeMinute();
+        long reservationId = reserve(organizer, baseDate);
+        startReservationAt(reservationId, now);
+
+        requestCancellation(organizer, reservationId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Reservation has already started"));
+
+        assertThat(statusOf(reservationId)).isEqualTo(ReservationStatus.CONFIRMED);
+    }
+
+    @Test
+    void shouldNotAllowRequestingCancellationOneMinuteAfterTheStart() throws Exception {
+        Instant now = freezeClockAtWholeMinute();
+        long reservationId = reserve(organizer, baseDate);
+        startReservationAt(reservationId, now.minus(1, ChronoUnit.MINUTES));
+
+        requestCancellation(organizer, reservationId).andExpect(status().isConflict());
+
+        assertThat(statusOf(reservationId)).isEqualTo(ReservationStatus.CONFIRMED);
+    }
+
     @Test
     void shouldLetAdminApproveRequestByCancellingAndFreeTheSlot() throws Exception {
         long reservationId = reserve(organizer, baseDate);
@@ -355,6 +406,33 @@ class MyReservationIntegrationTests {
         return id.longValue();
     }
 
+    /**
+     * Fixa o relógio da aplicação no minuto cheio da hora real (no máximo 1 min no passado, então o
+     * token emitido segue válido para o decoder, que usa o relógio do sistema).
+     */
+    private Instant freezeClockAtWholeMinute() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MINUTES);
+        TEST_CLOCK.set(now);
+
+        return now;
+    }
+
+    /**
+     * Move a reserva para começar em {@code start}. O fim vai para 23:59:59 só para respeitar o
+     * CHECK {@code end_time > start_time} do banco (o prazo olha apenas a data e o início).
+     */
+    private void startReservationAt(long reservationId, Instant start) {
+        LocalDateTime local = LocalDateTime.ofInstant(start, SAO_PAULO);
+
+        jdbcTemplate.update(
+                "UPDATE reservations SET reservation_date = ?, start_time = ?, end_time = ? WHERE id = ?",
+                java.sql.Date.valueOf(local.toLocalDate()),
+                java.sql.Time.valueOf(local.toLocalTime()),
+                java.sql.Time.valueOf(LocalTime.of(23, 59, 59)),
+                reservationId
+        );
+    }
+
     private ReservationStatus statusOf(long reservationId) {
         return reservationRepository.findById(reservationId).orElseThrow().getStatus();
     }
@@ -372,4 +450,13 @@ class MyReservationIntegrationTests {
         return "Bearer " + jwtTokenService.issue(user).accessToken();
     }
 
+    @TestConfiguration(proxyBeanMethods = false)
+    static class TestClockConfiguration {
+
+        @Bean
+        @Primary
+        Clock testClock() {
+            return TEST_CLOCK;
+        }
+    }
 }

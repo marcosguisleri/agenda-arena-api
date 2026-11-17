@@ -369,6 +369,18 @@ class MyRecurringReservationIntegrationTests {
         }
 
         @Test
+        void shouldStayIdempotentEvenIfTheLinkedOrganizerWasDeactivatedLater() throws Exception {
+            RecurringReservation series = series(eveningSlot, organizer, TODAY, null);
+            jdbcTemplate.update("UPDATE users SET active = false WHERE id = ?", organizer.getId());
+
+            link(series, organizer.getId())
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.organizerId").value(organizer.getId()));
+
+            assertThat(organizerOf(series)).isEqualTo(organizer.getId());
+        }
+
+        @Test
         void shouldChangeOrganizerWhenTheSeriesHasNoMatches() throws Exception {
             RecurringReservation series = series(eveningSlot, organizer, TODAY, null);
 

@@ -20,6 +20,8 @@ import br.dev.guisleri.agendaarena.user.service.UserService;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -162,10 +164,69 @@ class MyReservationIntegrationTests {
 
         mockMvc.perform(get("/me/reservations").header("Authorization", bearer(organizer)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].id").value(later))
-                .andExpect(jsonPath("$[1].id").value(mine))
-                .andExpect(jsonPath("$[0].organizerId").value(organizer.getId()));
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(later))
+                .andExpect(jsonPath("$.content[1].id").value(mine))
+                .andExpect(jsonPath("$.content[0].organizerId").value(organizer.getId()))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20));
+    }
+
+    @Test
+    void shouldPaginateMyReservationsKeepingTheOrder() throws Exception {
+        long first = reserve(organizer, baseDate);
+        long second = reserve(organizer, baseDate.plusDays(7));
+        long third = reserve(organizer, baseDate.plusDays(14));
+
+        mockMvc.perform(get("/me/reservations")
+                        .param("page", "0").param("size", "2")
+                        .header("Authorization", bearer(organizer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(third))
+                .andExpect(jsonPath("$.content[1].id").value(second))
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        mockMvc.perform(get("/me/reservations")
+                        .param("page", "1").param("size", "2")
+                        .header("Authorization", bearer(organizer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(first))
+                .andExpect(jsonPath("$.page").value(1));
+
+        mockMvc.perform(get("/me/reservations")
+                        .param("page", "5").param("size", "2")
+                        .header("Authorization", bearer(organizer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(3));
+    }
+
+    @Test
+    void shouldNotCountOrLeakReservationsOfOtherOrganizersWhenPaginating() throws Exception {
+        reserve(organizer, baseDate);
+        reserve(otherOrganizer, baseDate.plusDays(7));
+        reserve(otherOrganizer, baseDate.plusDays(14));
+
+        mockMvc.perform(get("/me/reservations")
+                        .param("size", "1")
+                        .header("Authorization", bearer(organizer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+    }
+
+    @ParameterizedTest(name = "page={0}, size={1} é recusado")
+    @CsvSource({"-1,20", "0,0", "0,101", "0,-5"})
+    void shouldRejectInvalidPagination(String page, String size) throws Exception {
+        mockMvc.perform(get("/me/reservations")
+                        .param("page", page).param("size", size)
+                        .header("Authorization", bearer(organizer)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -174,7 +235,9 @@ class MyReservationIntegrationTests {
 
         mockMvc.perform(get("/me/reservations").header("Authorization", bearer(organizer)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
     }
 
     @Test

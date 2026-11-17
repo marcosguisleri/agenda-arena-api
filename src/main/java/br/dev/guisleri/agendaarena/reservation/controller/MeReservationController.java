@@ -1,5 +1,7 @@
 package br.dev.guisleri.agendaarena.reservation.controller;
 
+import br.dev.guisleri.agendaarena.common.dto.PageRequests;
+import br.dev.guisleri.agendaarena.common.dto.PageResponseDTO;
 import br.dev.guisleri.agendaarena.common.security.AuthenticatedUsers;
 import br.dev.guisleri.agendaarena.reservation.dto.ReservationResponseDTO;
 import br.dev.guisleri.agendaarena.reservation.service.ReservationService;
@@ -9,9 +11,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 /**
  * "Minhas reservas": o usuário logado só enxerga e age sobre as próprias reservas. O id vem do
@@ -28,15 +29,20 @@ public class MeReservationController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ReservationResponseDTO>> findMyReservations(
-            Authentication authentication
+    public ResponseEntity<PageResponseDTO<ReservationResponseDTO>> findMyReservations(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "" + PageRequests.DEFAULT_SIZE) int size
     ) {
         return ResponseEntity.ok(
-                reservationService
-                        .findOrganizerReservations(AuthenticatedUsers.userId(authentication))
-                        .stream()
-                        .map(ReservationResponseDTO::fromEntity)
-                        .toList()
+                PageResponseDTO.from(
+                        reservationService.findOrganizerReservations(
+                                AuthenticatedUsers.userId(authentication),
+                                page,
+                                size
+                        ),
+                        ReservationResponseDTO::fromEntity
+                )
         );
     }
 

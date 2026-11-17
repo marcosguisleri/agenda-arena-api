@@ -18,6 +18,7 @@ import br.dev.guisleri.agendaarena.schedule.exception.ScheduleSlotNotFoundExcept
 import br.dev.guisleri.agendaarena.schedule.repository.ScheduleSlotRepository;
 import br.dev.guisleri.agendaarena.schedule.service.ScheduleSlotService;
 import br.dev.guisleri.agendaarena.user.entity.User;
+import br.dev.guisleri.agendaarena.user.model.UserRole;
 import br.dev.guisleri.agendaarena.user.service.UserService;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,6 +89,10 @@ public class RecurringReservationService {
                         sportFieldId,
                         scheduleSlotId
                 );
+
+        if (organizer != null) {
+            requireActiveOrganizer(organizer);
+        }
 
         RecurringReservation recurringReservation = new RecurringReservation(
                 scheduleSlot,
@@ -337,9 +342,7 @@ public class RecurringReservationService {
 
         User organizer = userService.findUserById(organizerId);
 
-        if (!organizer.isActive()) {
-            throw new RecurringReservationNotAllowedException("Organizer is not active");
-        }
+        requireActiveOrganizer(organizer);
 
         User current = recurringReservation.getOrganizer();
 
@@ -433,4 +436,18 @@ public class RecurringReservationService {
         }
     }
 
+    /**
+     * Quem gerencia a série e cria as partidas é um organizador ativo: contas administrativas (do
+     * estabelecimento ou da plataforma) e usuários inativos não podem ser vinculados, nem na criação
+     * nem na troca de organizador.
+     */
+    private static void requireActiveOrganizer(User organizer) {
+        if (!organizer.isActive()) {
+            throw new RecurringReservationNotAllowedException("Organizer is not active");
+        }
+
+        if (organizer.getRole() != UserRole.ORGANIZER) {
+            throw new RecurringReservationNotAllowedException("User is not an organizer");
+        }
+    }
 }

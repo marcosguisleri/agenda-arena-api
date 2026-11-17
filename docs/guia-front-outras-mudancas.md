@@ -46,7 +46,21 @@ padrão 20 e máximo 100. A ordem é fixa (data, horário, id) e não vem do cli
 - Erros: período inválido (`from` depois de `to`, ou mais de 92 dias), `size` fora de 1 a 100 ou `page` negativa → 400 com o
   campo em `errors`; campo de outro estabelecimento → 404.
 
+## 3b. "Minhas reservas" (organizador) agora é paginada
+
+`GET /me/reservations` deixou de devolver um array e passa a devolver uma página, no mesmo formato das listagens do admin:
+`{"content": [...], "page": 0, "size": 20, "totalElements": 57, "totalPages": 3}`. Parâmetros opcionais: `page` (começa em 0) e
+`size` (padrão 20, máximo 100). A ordem é fixa: data e horário mais recentes primeiro (o `id` desempata). Valores inválidos de
+`page`/`size` → 400. `GET /me/reservations/{id}` não mudou.
+
 ## 4. E-mails
 
 Os e-mails de reserva (confirmação, cancelamento, pedido de cancelamento e recusa) são enviados pela API; o front não
 precisa fazer nada. A reserva manual não envia e-mail (o cliente não tem conta).
+
+Todo e-mail traz uma linha `Ver a reserva: <url>`. **O front precisa ter estas duas rotas** (a base vem de `FRONT_URL` na API):
+
+- organizador: `/me/reservations/{id}` (detalhe da reserva dele);
+- administrador: `/admin/reservations/{id}` (detalhe da reserva no painel).
+
+Se preferir outros caminhos, avise: eles ficam num só lugar da API (`FrontLinks`).

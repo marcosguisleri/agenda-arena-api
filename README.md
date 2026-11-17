@@ -104,5 +104,6 @@ autorização por estabelecimento, migrations imutáveis) e o estado de cada fun
 | `CORS_ALLOWED_ORIGINS` | origens do front |
 | `API_DOCS_ENABLED` | Swagger e `/v3/api-docs` (desligue em produção) |
 | `MAIL_ENABLED`, `MAIL_*` | e-mails transacionais (SMTP) |
+| `FRONT_URL` | endereço do front nos links dos e-mails (padrão `http://localhost:4200`; defina o domínio real em produção) |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_TRUST_FORWARDED_HEADERS` | limite de requisições nas rotas públicas |
 | `RESERVATION_MAX_ADVANCE_DAYS`, `RESERVATION_MANUAL_MAX_PAST_DAYS` | janela de datas para reservar (14 e 30) |

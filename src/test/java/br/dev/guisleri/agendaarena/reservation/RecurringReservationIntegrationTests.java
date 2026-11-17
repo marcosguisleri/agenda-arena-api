@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -387,6 +388,43 @@ class RecurringReservationIntegrationTests {
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.status").value(404))
                     .andExpect(jsonPath("$.error").value("Not Found"));
+
+            assertThat(recurringReservationRepository.count()).isZero();
+        }
+
+        @ParameterizedTest(name = "usuário {0} não pode ser organizador da série")
+        @ValueSource(strings = {"ESTABLISHMENT_ADMIN", "PLATFORM_ADMIN"})
+        void shouldRejectOrganizerThatIsNotAnOrganizerAccount(String role) throws Exception {
+            jdbcTemplate.update("UPDATE users SET role = ? WHERE id = ?", role, organizer.getId());
+
+            postRecurringReservation(
+                    scheduleSlot.getId(),
+                    organizer.getId(),
+                    "Responsavel pela turma",
+                    "11999991234",
+                    FIRST_MONDAY,
+                    THIRD_MONDAY
+            )
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("User is not an organizer"));
+
+            assertThat(recurringReservationRepository.count()).isZero();
+        }
+
+        @Test
+        void shouldRejectInactiveOrganizerOnCreation() throws Exception {
+            jdbcTemplate.update("UPDATE users SET active = false WHERE id = ?", organizer.getId());
+
+            postRecurringReservation(
+                    scheduleSlot.getId(),
+                    organizer.getId(),
+                    "Responsavel pela turma",
+                    "11999991234",
+                    FIRST_MONDAY,
+                    THIRD_MONDAY
+            )
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Organizer is not active"));
 
             assertThat(recurringReservationRepository.count()).isZero();
         }

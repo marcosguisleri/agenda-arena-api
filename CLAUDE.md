@@ -114,7 +114,8 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
   (testes de outro estabelecimento = 404 sem efeito colateral, organizador = 403, anônimo = 401). Sem isso, a rota não está pronta.
 - Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES` (padrão 15), `REFRESH_EXPIRATION_DAYS` (padrão 30), `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`,
   `RATE_LIMIT_ENABLED` (padrão `true`), `RATE_LIMIT_TRUST_FORWARDED_HEADERS` (padrão `false`),
-  `MAIL_ENABLED` (padrão `false`), `MAIL_FROM`, `MAIL_HOST/PORT/USERNAME/PASSWORD`, `MAIL_SMTP_AUTH/STARTTLS`
+  `MAIL_ENABLED` (padrão `false`), `MAIL_FROM`, `MAIL_HOST/PORT/USERNAME/PASSWORD`, `MAIL_SMTP_AUTH/STARTTLS`,
+  `FRONT_URL` (padrão `http://localhost:4200`; base dos links dos e-mails, `app.front-url`; precisa ser http(s) com host, senão a API não sobe)
   (e `MAILPIT_SMTP_PORT/UI_PORT` só no docker-compose).
 - **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
 - **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
@@ -190,19 +191,19 @@ pendências de produto e as dívidas abaixo.
 - Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
   para alguns grupos.
 
-Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver log), só texto simples (sem HTML), sem links para o front
-(falta uma `app.front-url`), sem lembretes/reconfirmação pré-jogo, e para produção é preciso escolher o provedor SMTP e configurar SPF/DKIM do domínio.
+Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver log), só texto simples (sem HTML), sem lembretes/reconfirmação pré-jogo, e para produção é preciso escolher o provedor SMTP e configurar SPF/DKIM do domínio.
 
 Dívidas conhecidas: sem regeneração do token do link público
 da partida (se vazar, não há como trocar);
-paginação em `/me/reservations` (já existe `common/dto/PageResponseDTO` + `PageRequests` para reaproveitar); índice `(schedule_slot_id, reservation_date)`
+índice `(schedule_slot_id, reservation_date)`
 em `reservations` para a listagem do admin (hoje as canceladas/antigas são varredura filtrada, ok no volume do MVP);
 sessão: falta `logout-all` (revogar todas as sessões do usuário), teto absoluto de vida da sessão (a janela de 30 dias desliza a cada uso)
 (o limite de requisições existe nas rotas públicas; ver Segurança); o access token já emitido segue válido até expirar (15 min) mesmo após logout/revogação.
 
 Dívidas do `/code-review` da partida de ocorrência (13/11/2026, não corrigidas):
-- `PATCH` de vínculo (`RecurringReservationService.linkOrganizer`) aceita qualquer usuário ativo, sem checar papel nem vínculo com o
-  estabelecimento (a criação de recorrência já era assim); decisão do dono: exigir `ORGANIZER`?
+- Vínculo de organizador em série recorrente (`createRecurringReservation` com `organizerId` e `PATCH` `linkOrganizer`): **decidido pelo dono em
+  16/11/2026: exige usuário ativo com papel `ORGANIZER`** (`requireActiveOrganizer`, sob o lock do slot; admin do estabelecimento/plataforma →
+  400 "User is not an organizer"; inativo → 400 "Organizer is not active"). Ainda sem checar vínculo com o estabelecimento.
 - A regra "não trocar o organizador de série com partida" vive só no service (e cria ciclo de pacotes `reservation` ↔ `match`); outro
   código que mude `recurring_reservations.organizer_id` a contorna. Considerar guarda do lado da partida ou trigger.
 - `MatchService.isSourceCancelled` (→ `MatchSourceCancellation.isCancelled`) consulta as liberações a cada chamada (inclusive 2x no `joinMatch`, caminho público); calcular uma vez
@@ -249,6 +250,23 @@ monólito modular, Angular separado consumindo esta API REST.
 - **Cancelamento/estados**: organizador **solicita**, admin confirma; admin cancela e pode bloquear o slot; reserva pode ser
   concluída, cancelada ou "não compareceu" (marcado pelo estabelecimento). Nunca cancelar automaticamente por poucos participantes.
   Estados antigos "aguardando aprovação" em bancos antigos: propor migração com cautela (nova migration).
+  **Prazo (decidido pelo dono em 16/11/2026)**: o organizador pode pedir cancelamento **até o instante do início** (reserva das 16h: às 15:59
+  vale; às 16:00:00 já não). Sem antecedência mínima além disso; a antecedência máxima para reservar é a janela online (hoje..+14 dias).
+  Regra em `ReservationService.ensureCancellationCanBeRequested` (`início > agora`); mudar o prazo = mudar só ali.
+  **Matriz de estados (aceita pelo dono em 16/11/2026; confere com o código)**. Estados: `CONFIRMED`, `CANCELLATION_REQUESTED`, `COMPLETED`,
+  `NO_SHOW`, `CANCELLED`. Todos menos `CANCELLED` ocupam o horário; `CANCELLED` é terminal (não há reabertura).
+  | Transição | Quem | Condição |
+  |---|---|---|
+  | (criação) → `CONFIRMED` | organizador (online) | janela hoje..+14 dias e horário que ainda não começou |
+  | (criação) → `CONFIRMED` | admin (online em nome de usuário, ou manual) | manual: até 30 dias atrás, sem limite à frente |
+  | `CONFIRMED` → `CANCELLATION_REQUESTED` | organizador dono da reserva | só antes do início; repetir o pedido = 409 |
+  | `CANCELLATION_REQUESTED` → `CONFIRMED` | admin (recusa) | sem regra de horário |
+  | `CONFIRMED`/`CANCELLATION_REQUESTED` → `CANCELLED` | admin (`/cancel`, opção `keepBlocked`) | sem regra de horário; aprovar o pedido é este mesmo cancelamento |
+  | `CONFIRMED` → `COMPLETED` ou `NO_SHOW` | admin | só a partir do início; com pedido pendente não conclui |
+  | `COMPLETED`/`NO_SHOW` → `CONFIRMED` (reopen) | admin | correção de marcação; sem regra de horário |
+  Organizador nunca cancela direto (só solicita) nem conclui/marca não compareceu. Cancelar a reserva faz a partida ligada a ela aparecer como
+  cancelada (calculado a partir da origem; a partida em si não muda de estado). Pontos conhecidos, mantidos de propósito: um pedido esquecido continua `CANCELLATION_REQUESTED` depois do
+  jogo e o admin precisa recusar (volta a `CONFIRMED`) para então concluir; o admin pode cancelar uma reserva que já começou.
 - **Papéis**: visitante (consulta pública, sem conta), organizador, jogador convidado (sem conta, por link), administrador do
   estabelecimento. **MVP: uma conta administrativa por estabelecimento, possivelmente compartilhada pela equipe, sem seletor de
   estabelecimento no painel** (configuração operacional, não promessa de segurança). Futuro: funcionários com RBAC e admin global.
@@ -288,7 +306,9 @@ monólito modular, Angular separado consumindo esta API REST.
 - **E-mails** (14/11/2026; `notification`): texto simples em português, só transacionais de reserva. Confirmação ao organizador; aviso de novo
   agendamento online aos admins ativos do estabelecimento; cancelamento pelo estabelecimento (inclui aprovar pedido) ao organizador; pedido de
   cancelamento recebido (organizador) e alerta (admins); pedido recusado (organizador). **Reserva manual não envia** (cliente sem conta). A
-  confirmação principal continua sendo pelo WhatsApp do estabelecimento. Arquitetura: o service publica evento de domínio
+  confirmação principal continua sendo pelo WhatsApp do estabelecimento. **Links para o front** (16/11/2026): todo e-mail traz "Ver a reserva: <url>"
+  montado só em `notification/service/FrontLinks` (base `app.front-url`/`FRONT_URL`): organizador → `/me/reservations/{id}`, admins → `/admin/reservations/{id}`
+  (contrato com o front: se a rota mudar, muda lá). Em produção, definir `FRONT_URL`, senão os links apontam para localhost. Arquitetura: o service publica evento de domínio
   (`reservation/event/*`, retrato imutável `ReservationNotice`, sem entidade) e `ReservationEmailListener` age em `@TransactionalEventListener(AFTER_COMMIT)`
   + `@Async("emailTaskExecutor")` (fila limitada; cheia = descarta com aviso): rollback/perdedor de corrida nunca envia e falha de envio só gera
   log (sem endereço), nunca afeta a reserva. `EmailSender`: `SmtpEmailSender` (`app.mail.enabled=true`) ou `LoggingEmailSender` (padrão). Dev: Mailpit no
@@ -302,7 +322,8 @@ monólito modular, Angular separado consumindo esta API REST.
   renova com `POST /auth/refresh` antes/ao expirar e guarda o refresh token com cuidado (ele é a credencial de 30 dias).
 
 ### Pendente (propor recomendação e aguardar; NÃO presumir)
-1. Antecedência mínima/máxima para reservar e prazo de cancelamento. 2. Matriz final de estados/transições por perfil.
+~~1. Antecedência mínima/máxima e prazo de cancelamento~~ (resolvida em 16/11/2026; ver "Decidido → Cancelamento/estados"). ~~2. Matriz final de
+estados/transições por perfil~~ (aceita pelo dono em 16/11/2026; ver abaixo).
 3. Reconfirmação pré-jogo e lembretes (os e-mails de reserva já existem; ver "Decidido → E-mails"). 4. Hospedagem, monitoramento, backups. 5. Política comercial do SaaS (teste
 gratuito, planos, preços, cobrança, suspensão). ~~6. Sessão, revogação e refresh tokens~~ (resolvida em 14/11/2026). ~~7. Fechar/reabrir organização com
 pagamentos já marcados~~ (resolvida em 13/11/2026; ver "Decidido → Partida").
@@ -327,7 +348,7 @@ PNG do resumo**; funcionários com RBAC detalhado; reserva multi-slot ou agrupam
 | Concluída (`COMPLETED`) e não compareceu (`NO_SHOW`) | **implementado e testado** (fatia 4, 30/10/2026): V10 recria CHECK e índice único; `POST .../reservations/{id}/complete` e `/no-show` só de `CONFIRMED` e só a partir do horário de início (`Clock`), sob lock do slot; continuam ocupando o horário; só `CONFIRMED` pode ser cancelada | `ReservationService.completeReservation/markReservationAsNoShow`, `ReservationStatusTransitionIntegrationTests`; correção do admin: `POST .../reservations/{id}/reopen` volta COMPLETED/NO_SHOW para CONFIRMED, sob lock do slot (`ReservationService.reopenReservation`) |
 | Consulta de reserva por id e agenda do admin por campo/dia (`GET .../reservations/{id}`, `GET .../sports-fields/{id}/agenda?date=`) | **implementado e testado** (fatia 5, 30/10/2026): leitura sem lock; agenda com status FREE/RESERVED/RECURRING/BLOCKED (precedência nessa ordem), `recurring.released` indica ocorrência liberada; datas passadas permitidas | `AgendaService`, `ReservationService.findReservation`, `ReservationQueryIntegrationTests` |
 | Solicitação de cancelamento pelo organizador (`CANCELLATION_REQUESTED`) | **implementado e testado** (30/10/2026): V12; `POST /me/reservations/{id}/cancellation-request` (só `CONFIRMED`, só antes do início — único ponto do prazo: `ReservationService.ensureCancellationCanBeRequested`); continua ocupando o horário; admin aprova com o `/cancel` existente ou recusa com `POST .../reservations/{id}/refuse-cancellation` (volta a `CONFIRMED`) | `Reservation.requestCancellation/refuseCancellationRequest`, `MyReservationIntegrationTests` |
-| "Minhas reservas" (`GET /me/reservations`, `GET /me/reservations/{id}`) | **implementado e testado**: só as do usuário do token; de outro → 404; sem paginação ainda | `MeReservationController`, `MyReservationIntegrationTests` |
+| "Minhas reservas" (`GET /me/reservations`, `GET /me/reservations/{id}`) | **implementado e testado**: só as do usuário do token; de outro → 404; **paginada** (16/11/2026: `?page=0&size=20`, máx. 100, resposta `PageResponseDTO`, ordem data/horário/id decrescentes) | `MeReservationController`, `MyReservationIntegrationTests` |
 | Refresh token (rotação, reuso revoga a sessão, logout) | **implementado e testado** (14/11/2026): V20 `refresh_sessions`, lock da linha da sessão, `POST /auth/refresh` e `/auth/logout` públicos | `RefreshTokenService`, `RefreshTokenIntegrationTests` |
 | Spring Security/JWT, papéis, vínculo admin↔estabelecimento, isolamento | **implementado e testado** (30/10/2026): V11 (`users.role`, `establishment_admins`), login, 401/403/404 conforme a seção Segurança, `GET /me/establishments` | `SecurityConfig`, `EstablishmentAccessAuthorization`, `AuthenticationIntegrationTests`, `EstablishmentAuthorizationIntegrationTests` |
 | Partida: página por reserva + link público (token) | **implementado e testado** (13/11/2026, fatia 1): V14; criação idempotente sob lock do slot; `GET /matches/{token}` | `MatchService.createMatch`, `MatchIntegrationTests` |

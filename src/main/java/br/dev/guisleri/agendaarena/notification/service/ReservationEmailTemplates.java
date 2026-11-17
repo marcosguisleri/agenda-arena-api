@@ -91,7 +91,7 @@ public class ReservationEmailTemplates {
                         + customer(notice)
                         + details(notice) + "\n"
                         + "A reserva já está confirmada automaticamente.\n\n"
-                        + "Ver a reserva: " + frontLinks.adminReservation(notice.reservationId()) + "\n\n"
+                        + "Ver a reserva: " + frontLinks.adminReservation(notice.establishmentId(), notice.reservationId()) + "\n\n"
                         + signature()
         );
     }
@@ -109,7 +109,7 @@ public class ReservationEmailTemplates {
                         + details(notice) + "\n"
                         + "A reserva continua valendo até você decidir. Aprove cancelando a "
                         + "reserva ou recuse o pedido pelo painel.\n\n"
-                        + "Ver a reserva: " + frontLinks.adminReservation(notice.reservationId()) + "\n\n"
+                        + "Ver a reserva: " + frontLinks.adminReservation(notice.establishmentId(), notice.reservationId()) + "\n\n"
                         + signature()
         );
     }

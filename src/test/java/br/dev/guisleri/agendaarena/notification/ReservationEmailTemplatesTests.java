@@ -132,7 +132,7 @@ class ReservationEmailTemplatesTests {
     @Test
     @DisplayName("Todo aviso ao administrador leva o link da reserva no painel")
     void adminEmailsLinkToTheReservation() {
-        String link = "Ver a reserva: " + FRONT + "/admin/reservations/10\n";
+        String link = "Ver a reserva: " + FRONT + "/admin/establishments/1/reservations/10\n";
 
         assertThat(templates.newBookingForAdmin(notice(), "admin@example.com").body())
                 .contains(link);

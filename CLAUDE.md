@@ -115,7 +115,7 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
 - Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES` (padrão 15), `REFRESH_EXPIRATION_DAYS` (padrão 30), `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`,
   `RATE_LIMIT_ENABLED` (padrão `true`), `RATE_LIMIT_TRUST_FORWARDED_HEADERS` (padrão `false`),
   `MAIL_ENABLED` (padrão `false`), `MAIL_FROM`, `MAIL_HOST/PORT/USERNAME/PASSWORD`, `MAIL_SMTP_AUTH/STARTTLS`,
-  `FRONT_URL` (padrão `http://localhost:4200`; base dos links dos e-mails, `app.front-url`; precisa ser http(s) com host, senão a API não sobe)
+  `FRONT_URL` (padrão `http://localhost:4200`; base dos links dos e-mails, `app.front-url`; precisa ser http(s) com host e sem usuário/query/fragmento, senão a API não sobe)
   (e `MAILPIT_SMTP_PORT/UI_PORT` só no docker-compose).
 - **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
 - **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
@@ -307,7 +307,7 @@ monólito modular, Angular separado consumindo esta API REST.
   agendamento online aos admins ativos do estabelecimento; cancelamento pelo estabelecimento (inclui aprovar pedido) ao organizador; pedido de
   cancelamento recebido (organizador) e alerta (admins); pedido recusado (organizador). **Reserva manual não envia** (cliente sem conta). A
   confirmação principal continua sendo pelo WhatsApp do estabelecimento. **Links para o front** (16/11/2026): todo e-mail traz "Ver a reserva: <url>"
-  montado só em `notification/service/FrontLinks` (base `app.front-url`/`FRONT_URL`): organizador → `/me/reservations/{id}`, admins → `/admin/reservations/{id}`
+  montado só em `notification/service/FrontLinks` (base `app.front-url`/`FRONT_URL`): organizador → `/me/reservations/{id}`, admins → `/admin/establishments/{establishmentId}/reservations/{id}`
   (contrato com o front: se a rota mudar, muda lá). Em produção, definir `FRONT_URL`, senão os links apontam para localhost. Arquitetura: o service publica evento de domínio
   (`reservation/event/*`, retrato imutável `ReservationNotice`, sem entidade) e `ReservationEmailListener` age em `@TransactionalEventListener(AFTER_COMMIT)`
   + `@Async("emailTaskExecutor")` (fila limitada; cheia = descarta com aviso): rollback/perdedor de corrida nunca envia e falha de envio só gera

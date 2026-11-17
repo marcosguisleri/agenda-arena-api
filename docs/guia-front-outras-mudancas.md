@@ -49,3 +49,10 @@ padrão 20 e máximo 100. A ordem é fixa (data, horário, id) e não vem do cli
 
 Os e-mails de reserva (confirmação, cancelamento, pedido de cancelamento e recusa) são enviados pela API; o front não
 precisa fazer nada. A reserva manual não envia e-mail (o cliente não tem conta).
+
+Todo e-mail traz uma linha `Ver a reserva: <url>`. **O front precisa ter estas duas rotas** (a base vem de `FRONT_URL` na API):
+
+- organizador: `/me/reservations/{id}` (detalhe da reserva dele);
+- administrador: `/admin/reservations/{id}` (detalhe da reserva no painel).
+
+Se preferir outros caminhos, avise: eles ficam num só lugar da API (`FrontLinks`).

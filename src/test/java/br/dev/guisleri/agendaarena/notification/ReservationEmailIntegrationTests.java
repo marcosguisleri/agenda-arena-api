@@ -187,6 +187,19 @@ class ReservationEmailIntegrationTests {
         }
 
         @Test
+        void shouldLinkTheEmailsToTheReservationInTheFront() throws Exception {
+            long reservationId = reserveOnlineAndGetId(monday);
+
+            // Base padrão do front (app.front-url) nos testes: http://localhost:4200
+            assertThat(emailSender.to("maria@example.com").body())
+                    .contains("Ver a reserva: http://localhost:4200/me/reservations/"
+                            + reservationId + "\n");
+            assertThat(emailSender.to("admin.a@arena.com").body())
+                    .contains("Ver a reserva: http://localhost:4200/admin/reservations/"
+                            + reservationId + "\n");
+        }
+
+        @Test
         void shouldSendNothingWhenTheReservationIsRejected() throws Exception {
             reserveOnline(monday).andExpect(status().isCreated());
             emailSender.reset();

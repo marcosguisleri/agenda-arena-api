@@ -114,7 +114,8 @@ Pacotes **por funcionalidade**, cada um com as camadas `controller / dto / entit
   (testes de outro estabelecimento = 404 sem efeito colateral, organizador = 403, anônimo = 401). Sem isso, a rota não está pronta.
 - Variáveis de ambiente: `JWT_SECRET` (obrigatória; a API não sobe sem ela), `JWT_EXPIRATION_MINUTES` (padrão 15), `REFRESH_EXPIRATION_DAYS` (padrão 30), `PLATFORM_ADMIN_NAME/EMAIL/PHONE/PASSWORD`,
   `RATE_LIMIT_ENABLED` (padrão `true`), `RATE_LIMIT_TRUST_FORWARDED_HEADERS` (padrão `false`),
-  `MAIL_ENABLED` (padrão `false`), `MAIL_FROM`, `MAIL_HOST/PORT/USERNAME/PASSWORD`, `MAIL_SMTP_AUTH/STARTTLS`
+  `MAIL_ENABLED` (padrão `false`), `MAIL_FROM`, `MAIL_HOST/PORT/USERNAME/PASSWORD`, `MAIL_SMTP_AUTH/STARTTLS`,
+  `FRONT_URL` (padrão `http://localhost:4200`; base dos links dos e-mails, `app.front-url`; precisa ser http(s) com host, senão a API não sobe)
   (e `MAILPIT_SMTP_PORT/UI_PORT` só no docker-compose).
 - **CORS**: `CorsConfig` libera as origens de `CORS_ALLOWED_ORIGINS` (padrão `http://localhost:4200`), sem credenciais (auth é por header Bearer).
 - **OpenAPI/Swagger** (springdoc 3.0.0): `/swagger-ui.html` e `/v3/api-docs`, públicos; desligar em produção com `API_DOCS_ENABLED=false`. Botão Authorize aceita o `accessToken` do login.
@@ -190,8 +191,7 @@ pendências de produto e as dívidas abaixo.
 - Possibilidade futura (registrada a pedido do dono): copiar a lista da partida da semana anterior ("mesma turma"); rara, mas útil
   para alguns grupos.
 
-Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver log), só texto simples (sem HTML), sem links para o front
-(falta uma `app.front-url`), sem lembretes/reconfirmação pré-jogo, e para produção é preciso escolher o provedor SMTP e configurar SPF/DKIM do domínio.
+Dívidas dos e-mails: sem retry nem outbox (e-mail perdido se o SMTP cair; ver log), só texto simples (sem HTML), sem lembretes/reconfirmação pré-jogo, e para produção é preciso escolher o provedor SMTP e configurar SPF/DKIM do domínio.
 
 Dívidas conhecidas: sem regeneração do token do link público
 da partida (se vazar, não há como trocar);
@@ -288,7 +288,9 @@ monólito modular, Angular separado consumindo esta API REST.
 - **E-mails** (14/11/2026; `notification`): texto simples em português, só transacionais de reserva. Confirmação ao organizador; aviso de novo
   agendamento online aos admins ativos do estabelecimento; cancelamento pelo estabelecimento (inclui aprovar pedido) ao organizador; pedido de
   cancelamento recebido (organizador) e alerta (admins); pedido recusado (organizador). **Reserva manual não envia** (cliente sem conta). A
-  confirmação principal continua sendo pelo WhatsApp do estabelecimento. Arquitetura: o service publica evento de domínio
+  confirmação principal continua sendo pelo WhatsApp do estabelecimento. **Links para o front** (16/11/2026): todo e-mail traz "Ver a reserva: <url>"
+  montado só em `notification/service/FrontLinks` (base `app.front-url`/`FRONT_URL`): organizador → `/me/reservations/{id}`, admins → `/admin/reservations/{id}`
+  (contrato com o front: se a rota mudar, muda lá). Em produção, definir `FRONT_URL`, senão os links apontam para localhost. Arquitetura: o service publica evento de domínio
   (`reservation/event/*`, retrato imutável `ReservationNotice`, sem entidade) e `ReservationEmailListener` age em `@TransactionalEventListener(AFTER_COMMIT)`
   + `@Async("emailTaskExecutor")` (fila limitada; cheia = descarta com aviso): rollback/perdedor de corrida nunca envia e falha de envio só gera
   log (sem endereço), nunca afeta a reserva. `EmailSender`: `SmtpEmailSender` (`app.mail.enabled=true`) ou `LoggingEmailSender` (padrão). Dev: Mailpit no

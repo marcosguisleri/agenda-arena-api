@@ -1,6 +1,8 @@
 package br.dev.guisleri.agendaarena.reservation.repository;
 
 import br.dev.guisleri.agendaarena.reservation.entity.SlotBlock;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -49,5 +51,31 @@ public interface SlotBlockRepository extends JpaRepository<SlotBlock, Long> {
     List<Long> findBlockedScheduleSlotIds(
             @Param("sportFieldId") Long sportFieldId,
             @Param("date") LocalDate date
+    );
+
+    /**
+     * Listagem do administrador: bloqueios de um estabelecimento num período, com filtro opcional
+     * de campo, em ordem fixa (data, horário, id). Horário e campo vêm na mesma consulta.
+     */
+    @EntityGraph(attributePaths = {"scheduleSlot", "scheduleSlot.sportField"})
+    @Query(value = """
+            select b from SlotBlock b
+            where b.scheduleSlot.sportField.establishment.id = :establishmentId
+              and b.blockDate between :from and :to
+              and (:sportFieldId is null or b.scheduleSlot.sportField.id = :sportFieldId)
+            order by b.blockDate, b.scheduleSlot.startTime, b.id
+            """,
+            countQuery = """
+            select count(b) from SlotBlock b
+            where b.scheduleSlot.sportField.establishment.id = :establishmentId
+              and b.blockDate between :from and :to
+              and (:sportFieldId is null or b.scheduleSlot.sportField.id = :sportFieldId)
+            """)
+    Page<SlotBlock> findForAdmin(
+            @Param("establishmentId") Long establishmentId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("sportFieldId") Long sportFieldId,
+            Pageable pageable
     );
 }
